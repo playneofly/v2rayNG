@@ -11,6 +11,7 @@ import com.v2ray.ang.AppConfig
 import com.v2ray.ang.R
 import com.v2ray.ang.core.CoreServiceManager
 import com.v2ray.ang.core.LauncherManager
+import com.v2ray.ang.handler.MmkvManager
 
 class WidgetProvider : AppWidgetProvider() {
     /**
@@ -53,6 +54,15 @@ class WidgetProvider : AppWidgetProvider() {
             remoteViews.setInt(R.id.layout_background, "setBackgroundResource", R.drawable.ic_rounded_corner_inactive)
         }
 
+        // FILTERNET: show the active server name and the connection state on the widget.
+        remoteViews.setTextViewText(
+            R.id.text_widget_title,
+            context.getString(
+                if (isRunning) R.string.connection_connected else R.string.connection_not_connected
+            )
+        )
+        remoteViews.setTextViewText(R.id.text_widget_server, currentServerName())
+
         for (appWidgetId in appWidgetIds) {
             appWidgetManager.updateAppWidget(appWidgetId, remoteViews)
         }
@@ -92,5 +102,15 @@ class WidgetProvider : AppWidgetProvider() {
                 }
             }
         }
+    }
+
+    /**
+     * FILTERNET: resolves the remark of the currently selected profile, if any.
+     */
+    private fun currentServerName(): String = try {
+        val guid = MmkvManager.getSelectServer()
+        if (guid.isNullOrBlank()) "" else MmkvManager.decodeServerConfig(guid)?.remarks.orEmpty()
+    } catch (_: Exception) {
+        ""
     }
 }

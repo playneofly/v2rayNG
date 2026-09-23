@@ -16,6 +16,7 @@ import com.v2ray.ang.core.CoreServiceManager
 import com.v2ray.ang.dto.entities.ProfileItem
 import com.v2ray.ang.extension.delay
 import com.v2ray.ang.extension.toSpeedString
+import com.v2ray.ang.extension.toTrafficString
 import com.v2ray.ang.helper.NotificationHelper
 import com.v2ray.ang.ui.main.MainActivity
 import com.v2ray.ang.util.LogUtil
@@ -33,8 +34,15 @@ object NotificationManager {
     private const val NOTIFICATION_PENDING_INTENT_RESTART_V2RAY = 2
     private const val NOTIFICATION_ICON_THRESHOLD = 3000
     private const val QUERY_INTERVAL_MS = 3000L
+    private const val QUERY_INTERVAL_SAVER_MS = 8000L
+
+    /** FILTERNET: slow every background refresh down when battery saver is on. */
+    private fun queryIntervalMs(): Long =
+        if (MmkvManager.decodeSettingsBool(AppConfig.PREF_FN_BATTERY_SAVER) == true)
+            QUERY_INTERVAL_SAVER_MS else QUERY_INTERVAL_MS
 
     private var lastQueryTime = 0L
+    private var currentServerName: String? = null
     private var mBuilder: NotificationCompat.Builder? = null
     private var speedNotificationJob: Job? = null
     private var mNotificationManager: NotificationManager? = null
@@ -44,7 +52,8 @@ object NotificationManager {
      * @param currentConfig The current profile configuration.
      */
     fun startSpeedNotification() {
-        if (MmkvManager.decodeSettingsBool(AppConfig.PREF_SPEED_ENABLED) != true) return
+        // FILTERNET: the sampler also feeds traffic statistics and the live speed
+        // graph, so it must run even when the speed line in the notification is off.
         if (speedNotificationJob != null || CoreServiceManager.isRunning() == false) return
 
         var lastZeroSpeed = false
@@ -52,7 +61,7 @@ object NotificationManager {
         speedNotificationJob = CoroutineScope(Dispatchers.IO).launch {
             while (isActive) {
                 lastZeroSpeed = updateSpeedNotificationOnce(lastZeroSpeed)
-                delay(QUERY_INTERVAL_MS)
+                delay(queryIntervalMs())
             }
         }
     }
@@ -91,9 +100,11 @@ object NotificationManager {
                 ""
             }
 
+        currentConfig?.remarks?.takeIf { it.isNotBlank() }?.let { currentServerName = it }
+
         mBuilder = NotificationCompat.Builder(service, channelId)
             .setSmallIcon(R.drawable.ic_stat_name)
-            .setContentTitle(currentConfig?.remarks ?: service.getString(R.string.app_name))
+            .setContentTitle(currentServerName ?: service.getString(R.string.app_name))
             .setPriority(NotificationCompat.PRIORITY_LOW)
             .setOngoing(true)
             .setShowWhen(false)
@@ -134,6 +145,8 @@ object NotificationManager {
         service.stopForeground(Service.STOP_FOREGROUND_REMOVE)
 
         mBuilder = null
+        currentServerName = null
+        LiveSpeedStore.clear()
         speedNotificationJob?.cancel()
         speedNotificationJob = null
         mNotificationManager = null
@@ -232,7 +245,7 @@ object NotificationManager {
         val sinceLastQueryIn = (queryTime - lastQueryTime)
 
         // If the query interval is too short, skip this round to avoid excessive CPU usage
-        if (sinceLastQueryIn < QUERY_INTERVAL_MS) {
+        if (sinceLastQueryIn < queryIntervalMs()) {
             LogUtil.w(AppConfig.TAG, "Query interval too short: ${sinceLastQueryIn}ms, skipping")
             lastQueryTime = queryTime
             return lastZeroSpeed
@@ -266,19 +279,32 @@ object NotificationManager {
         val proxyTotal = proxyUplink + proxyDownlink
         val directTotal = directUplink + directDownlink
         val zeroSpeed = proxyTotal + directTotal == 0L
+
+        // FILTERNET: persist consumption and publish the live rate for the UI.
+        TrafficStatsManager.record(proxyUplink + directUplink, proxyDownlink + directDownlink)
+        LiveSpeedStore.publish(
+            upPerSec = ((proxyUplink + directUplink) / sinceLastQueryInSeconds).toLong(),
+            downPerSec = ((proxyDownlink + directDownlink) / sinceLastQueryInSeconds).toLong(),
+        )
+
         if (!zeroSpeed || !lastZeroSpeed) {
             val text = StringBuilder()
-            appendSpeedString(
-                text, AppConfig.TAG_PROXY,
-                proxyUplink / sinceLastQueryInSeconds,
-                proxyDownlink / sinceLastQueryInSeconds
-            )
+            if (MmkvManager.decodeSettingsBool(AppConfig.PREF_SPEED_ENABLED) == true) {
+                appendSpeedString(
+                    text, AppConfig.TAG_PROXY,
+                    proxyUplink / sinceLastQueryInSeconds,
+                    proxyDownlink / sinceLastQueryInSeconds
+                )
 
-            appendSpeedString(
-                text, AppConfig.TAG_DIRECT,
-                directUplink / sinceLastQueryInSeconds,
-                directDownlink / sinceLastQueryInSeconds
-            )
+                appendSpeedString(
+                    text, AppConfig.TAG_DIRECT,
+                    directUplink / sinceLastQueryInSeconds,
+                    directDownlink / sinceLastQueryInSeconds
+                )
+            }
+            // FILTERNET: today's consumption on its own line.
+            val today = TrafficStatsManager.today()
+            text.append("\u2193 ${today.down.toTrafficString()}  \u2191 ${today.up.toTrafficString()}")
             updateNotification(text.toString(), proxyTotal, directTotal)
         }
         lastQueryTime = queryTime

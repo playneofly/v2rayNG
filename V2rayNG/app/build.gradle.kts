@@ -10,7 +10,7 @@ android {
     compileSdk = 37
 
     defaultConfig {
-        applicationId = "com.v2ray.ang"
+        applicationId = "com.filternet.app"
         minSdk = 24
         targetSdk = 37
         versionCode = 749
@@ -54,10 +54,12 @@ android {
             dimension = "distribution"
             applicationIdSuffix = ".fdroid"
             buildConfigField("String", "DISTRIBUTION", "\"F-Droid\"")
+            resValue("string", "app_package_id", "com.filternet.app.fdroid")
         }
         create("playstore") {
             dimension = "distribution"
             buildConfigField("String", "DISTRIBUTION", "\"Play Store\"")
+            resValue("string", "app_package_id", "com.filternet.app")
         }
     }
 

@@ -561,4 +561,28 @@
     <string name="connection_test_empty_message">جزئیاتی در دسترس نیست</string>
     <string name="value_unknown">ناشناخته</string>
 
+    <!-- FILTERNET additions -->
+    <string name="fn_btn_test_real">تست تأخیر واقعی</string>
+    <string name="fn_btn_sort">مرتب‌سازی بر اساس نتیجه</string>
+    <string name="fn_btn_best">بهترین</string>
+    <string name="fn_best_searching">در حال یافتن بهترین سرور…</string>
+    <string name="fn_best_found">به بهترین سرور وصل شد: %1$s (%2$d میلی‌ثانیه)</string>
+    <string name="fn_best_none">سرور سالمی پیدا نشد</string>
+    <string name="fn_speed_down">دانلود</string>
+    <string name="fn_speed_up">آپلود</string>
+    <string name="fn_traffic_title">آمار مصرف</string>
+    <string name="fn_traffic_today">امروز</string>
+    <string name="fn_traffic_week">۷ روز اخیر</string>
+    <string name="fn_traffic_total">مجموع</string>
+    <string name="fn_traffic_reset">پاک کردن آمار</string>
+    <string name="fn_traffic_empty">هنوز مصرفی ثبت نشده است</string>
+    <string name="fn_pref_auto_test">بررسی خودکار سلامت سرور</string>
+    <string name="fn_pref_auto_test_summary">به‌صورت دوره‌ای سرور فعال را تست می‌کند و در صورت خرابی به سرور بهتر سوییچ می‌کند</string>
+    <string name="fn_pref_auto_test_interval">فاصله‌ی بررسی (دقیقه)</string>
+    <string name="fn_pref_auto_test_failures">تعداد خطا قبل از سوییچ</string>
+    <string name="fn_pref_battery_saver">حالت ذخیره باتری</string>
+    <string name="fn_pref_battery_saver_summary">به‌روزرسانی‌های پس‌زمینه (نمودار سرعت، اعلان، بررسی سلامت) را کندتر می‌کند</string>
+    <string name="fn_pref_splash">نمایش صفحه‌ی شروع</string>
+    <string name="fn_auto_switched">سرور ناپایدار بود، به %1$s سوییچ شد</string>
+    <string name="fn_category">فیلترنت</string>
 </resources>

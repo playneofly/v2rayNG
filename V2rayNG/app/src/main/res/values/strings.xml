@@ -561,4 +561,28 @@
     <string name="connection_test_empty_message">no details available</string>
     <string name="value_unknown">unknown</string>
 
+    <!-- FILTERNET additions -->
+    <string name="fn_btn_test_real">Test real delays</string>
+    <string name="fn_btn_sort">Sort by results</string>
+    <string name="fn_btn_best">Best</string>
+    <string name="fn_best_searching">Finding the best server…</string>
+    <string name="fn_best_found">Connected to best server: %1$s (%2$d ms)</string>
+    <string name="fn_best_none">No working server found</string>
+    <string name="fn_speed_down">Down</string>
+    <string name="fn_speed_up">Up</string>
+    <string name="fn_traffic_title">Traffic statistics</string>
+    <string name="fn_traffic_today">Today</string>
+    <string name="fn_traffic_week">Last 7 days</string>
+    <string name="fn_traffic_total">Total</string>
+    <string name="fn_traffic_reset">Reset statistics</string>
+    <string name="fn_traffic_empty">No traffic recorded yet</string>
+    <string name="fn_pref_auto_test">Automatic server health check</string>
+    <string name="fn_pref_auto_test_summary">Periodically tests the active server and switches to a better one when it fails</string>
+    <string name="fn_pref_auto_test_interval">Health check interval (minutes)</string>
+    <string name="fn_pref_auto_test_failures">Failures before switching</string>
+    <string name="fn_pref_battery_saver">Battery saver</string>
+    <string name="fn_pref_battery_saver_summary">Slows down background refresh (speed graph, notification, health check)</string>
+    <string name="fn_pref_splash">Show splash screen</string>
+    <string name="fn_auto_switched">Server was unstable, switched to %1$s</string>
+    <string name="fn_category">FILTERNET</string>
 </resources>

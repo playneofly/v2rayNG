@@ -82,6 +82,13 @@ object AppConfig {
     const val PREF_CHECK_UPDATE_PRE_RELEASE = "pref_check_update_pre_release"
     const val PREF_GEO_FILES_SOURCES = "pref_geo_files_sources"
     const val PREF_USE_HEV_TUNNEL = "pref_use_hev_tunnel_v2"
+
+    // FILTERNET additions
+    const val PREF_FN_AUTO_TEST_ENABLED = "pref_fn_auto_test_enabled"
+    const val PREF_FN_AUTO_TEST_INTERVAL = "pref_fn_auto_test_interval"
+    const val PREF_FN_AUTO_TEST_FAILURES = "pref_fn_auto_test_failures"
+    const val PREF_FN_BATTERY_SAVER = "pref_fn_battery_saver"
+    const val PREF_FN_SPLASH_ENABLED = "pref_fn_splash_enabled"
     const val PREF_HEV_TUNNEL_LOGLEVEL = "pref_hev_tunnel_loglevel"
     const val PREF_HEV_TUNNEL_RW_TIMEOUT = "pref_hev_tunnel_rw_timeout_v2"
     const val PREF_UPDATE_SUBSCRIPTION = "pref_update_subscription"

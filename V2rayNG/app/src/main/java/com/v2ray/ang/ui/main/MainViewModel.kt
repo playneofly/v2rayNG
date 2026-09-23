@@ -109,6 +109,10 @@ class MainViewModel(
     private val testRequests = MainTestRequests()
     private var bulkTestJob: Job? = null
 
+    // FILTERNET: set while the "Best" button flow is waiting for bulk test results.
+    private var pendingBestSelection = false
+    private var onBestServerPicked: ((String) -> Unit)? = null
+
     private val initialPageReady = CompletableDeferred<Unit>()
 
     // ---------- Service events ----------
@@ -177,6 +181,8 @@ class MainViewModel(
 
             is MainServiceEvent.MeasureConfigCancelled -> {
                 if (testRequests.completeBulk(event.requestId) != null) {
+                    pendingBestSelection = false
+                    _uiState.update { it.copy(isFindingBest = false) }
                     cancelPendingTestResults()
                     resetTestStatus()
                 }
@@ -278,6 +284,7 @@ class MainViewModel(
             MainAction.RefreshGroups -> setupGroupTab(forceRefresh = true)
             MainAction.TestAllServers -> testAllRealPing(true)
             MainAction.TestRealAllServers -> testAllRealPing()
+            MainAction.ConnectBestServer -> connectBestServer()
             MainAction.CancelTesting -> cancelAllPing()
             MainAction.RemoveAllServers -> removeAllServerAsync()
             MainAction.RemoveDuplicateServers -> removeDuplicateServerAsync()
@@ -883,6 +890,48 @@ class MainViewModel(
         pendingTestResults.clear()
     }
 
+    /**
+     * FILTERNET: tests every server of the active group and then selects the one
+     * with the lowest positive delay. The activity is notified through
+     * [setOnBestServerPicked] so it can restart the tunnel on the new server.
+     */
+    fun connectBestServer() {
+        if (currentServers().isEmpty()) {
+            toastError(R.string.fn_best_none)
+            return
+        }
+        pendingBestSelection = true
+        _uiState.update { it.copy(isFindingBest = true) }
+        toast(R.string.fn_best_searching)
+        testAllRealPing()
+    }
+
+    fun setOnBestServerPicked(callback: ((String) -> Unit)?) {
+        onBestServerPicked = callback
+    }
+
+    private fun applyBestServer() {
+        viewModelScope.launch {
+            val best = currentServers()
+                .filter { it.testDelayMillis > 0L }
+                .minByOrNull { it.testDelayMillis }
+            _uiState.update { it.copy(isFindingBest = false) }
+            if (best == null) {
+                toastError(R.string.fn_best_none)
+                return@launch
+            }
+            updateSelectedGuid(best.guid)
+            toastSuccess(
+                getString(
+                    R.string.fn_best_found,
+                    best.profile.remarks,
+                    best.testDelayMillis.toInt()
+                )
+            )
+            onBestServerPicked?.invoke(best.guid)
+        }
+    }
+
     fun testCurrentServerRealPing() {
         if (!uiState.value.isRunning) return
         val requestId = testRequests.beginCurrent()
@@ -893,6 +942,10 @@ class MainViewModel(
     private fun onTestsFinished(requestId: String) {
         if (testRequests.completeBulk(requestId) == null) return
         resetTestStatus()
+        if (pendingBestSelection) {
+            pendingBestSelection = false
+            applyBestServer()
+        }
         viewModelScope.launch(ioDispatcher) {
             cacheMutex.withLock { groupDataCache.clear() }
             reloadAllGroups(_uiState.value.groups.map { it.id })

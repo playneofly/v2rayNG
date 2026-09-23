@@ -188,6 +188,7 @@ fun MainScreen(
                 MainBottomBar(
                     displayText = displayText,
                     isRunning = isRunning,
+                    isTesting = uiState.isTesting || uiState.isFindingBest,
                     isDarkTheme = isDarkTheme,
                     onAction = onAction
                 )
@@ -249,7 +250,7 @@ fun MainScreen(
                                 start = 0.dp,
                                 top = 0.dp,
                                 end = 0.dp,
-                                bottom = 80.dp
+                                bottom = 140.dp
                             )
                         )
                     }

@@ -14,6 +14,7 @@ import com.v2ray.ang.AngApplication
 import com.v2ray.ang.AppConfig
 import com.v2ray.ang.R
 import com.v2ray.ang.core.LauncherManager
+import com.v2ray.ang.handler.AutoTestScheduler
 import com.v2ray.ang.dto.entities.ProfileItem
 import com.v2ray.ang.enums.EConfigType
 import com.v2ray.ang.enums.PermissionType
@@ -28,6 +29,7 @@ import com.v2ray.ang.ui.AboutActivity
 import com.v2ray.ang.ui.backup.BackupActivity
 import com.v2ray.ang.ui.base.HelperBaseComponentActivity
 import com.v2ray.ang.ui.checkupdate.CheckUpdateActivity
+import com.v2ray.ang.ui.compose.SplashOverlay
 import com.v2ray.ang.ui.logcat.LogcatActivity
 import com.v2ray.ang.ui.perappproxy.PerAppProxyActivity
 import com.v2ray.ang.ui.routing.RoutingSettingActivity
@@ -94,12 +96,31 @@ class MainActivity : HelperBaseComponentActivity() {
         super.onCreate(savedInstanceState)
         mainViewModel.onAction(MainAction.Initialize)
 
+        // FILTERNET: after the "Best" flow picks a server, (re)start the tunnel on it.
+        mainViewModel.setOnBestServerPicked {
+            if (mainViewModel.uiState.value.isRunning) {
+                LauncherManager.restartService(this)
+            } else {
+                startV2Ray()
+            }
+        }
+
+        // FILTERNET: keep the background health checker in sync with its setting.
+        AutoTestScheduler.sync(this)
+
         checkAndRequestPermission(PermissionType.POST_NOTIFICATIONS) {}
+    }
+
+    override fun onDestroy() {
+        mainViewModel.setOnBestServerPicked(null)
+        super.onDestroy()
     }
 
     @Composable
     override fun ScreenContent() {
         BackHandler { moveTaskToBack(false) }
+        // FILTERNET: brand splash overlay on top of the main screen.
+        SplashOverlay {
         MainScreen(
             mainViewModel = mainViewModel,
             onAction = { action ->
@@ -121,6 +142,7 @@ class MainActivity : HelperBaseComponentActivity() {
             },
             onNavigate = { route -> navigateTo(route) },
         )
+        }
     }
 
     private fun shareToClipboard(guid: String): Boolean =

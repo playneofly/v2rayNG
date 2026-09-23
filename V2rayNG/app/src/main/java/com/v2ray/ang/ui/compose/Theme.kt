@@ -105,6 +105,15 @@ private val DarkColor = darkColorScheme(
 val colorPing = Color(0xFF009966) // Green
 val colorPingRed = Color(0xFFFF0099) // Pink Red
 val colorConfigType = Color(0xFF0B7C92) // Teal Cyan
+
+// FILTERNET: per-protocol badge colors so the server type is recognizable at a glance.
+val colorTypeVless = Color(0xFF4F8DF7) // Blue
+val colorTypeVmess = Color(0xFF00BCD4) // Cyan
+val colorTypeTrojan = Color(0xFF34C759) // Green
+val colorTypeShadowsocks = Color(0xFFFF9F0A) // Orange
+val colorTypeHysteria = Color(0xFFAF7BFF) // Purple
+val colorTypeWireguard = Color(0xFFFF6482) // Pink
+val colorTypeOther = Color(0xFF9AA5B1) // Gray
 val colorFabActive = Color(0xFF1D4ED8) // Brand Blue
 val colorFabInactiveLight = Color(0xFF9C9C9C) // Gray
 val colorFabInactiveDark = Color(0xFF646464) // Dark Gray

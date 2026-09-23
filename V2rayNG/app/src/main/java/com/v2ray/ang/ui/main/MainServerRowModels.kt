@@ -2,6 +2,7 @@ package com.v2ray.ang.ui.main
 
 import com.v2ray.ang.dto.entities.ProfileItem
 import com.v2ray.ang.dto.entities.ServersCache
+import com.v2ray.ang.enums.EConfigType
 import com.v2ray.ang.extension.isComplexType
 import com.v2ray.ang.extension.nullIfBlank
 import com.v2ray.ang.handler.AngConfigManager
@@ -12,6 +13,8 @@ internal data class ServerRowUiModel(
     val remarks: String,
     val statistics: String,
     val typeDescription: String,
+    /** FILTERNET: drives the badge color of the type label. */
+    val configType: EConfigType,
     val testDelayMillis: Long,
     val subscriptionBadge: String,
 )
@@ -33,6 +36,7 @@ internal fun buildServerRowUiModel(
         statistics = profile.description.nullIfBlank()
             ?: AngConfigManager.generateDescription(profile),
         typeDescription = serverProtocolDescription(profile),
+        configType = profile.configType,
         testDelayMillis = server.testDelayMillis,
         subscriptionBadge = subscriptionRemarks.firstOrNull()?.toString().orEmpty(),
     )

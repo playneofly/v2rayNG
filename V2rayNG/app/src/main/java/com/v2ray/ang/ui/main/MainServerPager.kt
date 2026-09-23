@@ -52,7 +52,15 @@ import com.v2ray.ang.dto.entities.ProfileItem
 import com.v2ray.ang.ui.compose.ItemDivider
 import com.v2ray.ang.ui.compose.ReorderableGridItem
 import com.v2ray.ang.ui.compose.ReorderableListItem
+import com.v2ray.ang.enums.EConfigType
 import com.v2ray.ang.ui.compose.colorConfigType
+import com.v2ray.ang.ui.compose.colorTypeHysteria
+import com.v2ray.ang.ui.compose.colorTypeOther
+import com.v2ray.ang.ui.compose.colorTypeShadowsocks
+import com.v2ray.ang.ui.compose.colorTypeTrojan
+import com.v2ray.ang.ui.compose.colorTypeVless
+import com.v2ray.ang.ui.compose.colorTypeVmess
+import com.v2ray.ang.ui.compose.colorTypeWireguard
 import com.v2ray.ang.ui.compose.colorPing
 import com.v2ray.ang.ui.compose.colorPingRed
 import com.v2ray.ang.ui.compose.verticalScrollbar
@@ -406,11 +414,25 @@ private fun ServerListItem(
             }
             Spacer(modifier = Modifier.height(6.dp))
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                Text(row.typeDescription, style = MaterialTheme.typography.bodySmall, color = colorConfigType, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(row.typeDescription, style = MaterialTheme.typography.bodySmall, color = protocolColor(row.configType), maxLines = 1, overflow = TextOverflow.Ellipsis)
                 Text(testResult, style = MaterialTheme.typography.bodySmall, color = if (row.testDelayMillis < 0L) colorPingRed else colorPing, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
         }
     }
+}
+
+/**
+ * FILTERNET: maps a protocol to its badge color.
+ */
+private fun protocolColor(type: EConfigType) = when (type) {
+    EConfigType.VLESS -> colorTypeVless
+    EConfigType.VMESS -> colorTypeVmess
+    EConfigType.TROJAN -> colorTypeTrojan
+    EConfigType.SHADOWSOCKS -> colorTypeShadowsocks
+    EConfigType.HYSTERIA2, EConfigType.HYSTERIA -> colorTypeHysteria
+    EConfigType.WIREGUARD -> colorTypeWireguard
+    EConfigType.SOCKS, EConfigType.HTTP -> colorConfigType
+    else -> colorTypeOther
 }
 
 internal suspend fun PagerState.navigateToPageOptimized(

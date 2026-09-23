@@ -24,6 +24,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringArrayResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
@@ -36,6 +37,7 @@ import com.v2ray.ang.AppConfig.VPN
 import com.v2ray.ang.R
 import com.v2ray.ang.extension.toastError
 import com.v2ray.ang.handler.AppLocaleManager
+import com.v2ray.ang.handler.AutoTestScheduler
 import com.v2ray.ang.handler.MmkvManager
 import com.v2ray.ang.handler.MmkvManager.rememberMmkvBool
 import com.v2ray.ang.handler.MmkvManager.rememberMmkvString
@@ -155,6 +157,20 @@ fun SettingsScreen(
     var proxySharing by rememberMmkvBool(AppConfig.PREF_PROXY_SHARING, false)
 
     var speedEnabled by rememberMmkvBool(AppConfig.PREF_SPEED_ENABLED, false)
+
+    // FILTERNET settings
+    var fnSplashEnabled by rememberMmkvBool(AppConfig.PREF_FN_SPLASH_ENABLED, true)
+    var fnBatterySaver by rememberMmkvBool(AppConfig.PREF_FN_BATTERY_SAVER, false)
+    var fnAutoTest by rememberMmkvBool(AppConfig.PREF_FN_AUTO_TEST_ENABLED, false)
+    var fnAutoTestInterval by rememberMmkvString(
+        AppConfig.PREF_FN_AUTO_TEST_INTERVAL,
+        AutoTestScheduler.DEFAULT_INTERVAL_MINUTES.toString()
+    )
+    var fnAutoTestFailures by rememberMmkvString(
+        AppConfig.PREF_FN_AUTO_TEST_FAILURES,
+        AutoTestScheduler.DEFAULT_FAILURE_THRESHOLD.toString()
+    )
+    var fnSettingsExpanded by rememberSaveable { mutableStateOf(true) }
     var confirmRemove by rememberMmkvBool(AppConfig.PREF_CONFIRM_REMOVE, false)
     var doubleColumnDisplay by rememberMmkvBool(AppConfig.PREF_DOUBLE_COLUMN_DISPLAY, false)
     var groupAllDisplay by rememberMmkvBool(AppConfig.PREF_GROUP_ALL_DISPLAY, false)
@@ -235,6 +251,65 @@ fun SettingsScreen(
                 .verticalScrollbar(scrollState)
                 .verticalScroll(scrollState)
         ) {
+            // ---------- FILTERNET ----------
+            val fnContext = LocalContext.current
+            CollapsiblePreferenceGroupHeader(
+                title = stringResource(R.string.fn_category),
+                expanded = fnSettingsExpanded,
+                onExpandedChange = { fnSettingsExpanded = it }
+            )
+            if (fnSettingsExpanded) {
+                SettingsMenuItem(
+                    title = stringResource(R.string.fn_traffic_title),
+                    subtitle = stringResource(R.string.fn_traffic_today),
+                    onClick = {
+                        fnContext.startActivity(
+                            Intent(fnContext, com.v2ray.ang.ui.stats.TrafficStatsActivity::class.java)
+                        )
+                    }
+                )
+                SettingsSwitchItem(
+                    title = stringResource(R.string.fn_pref_splash),
+                    checked = fnSplashEnabled,
+                    onCheckedChange = { fnSplashEnabled = it }
+                )
+                SettingsSwitchItem(
+                    title = stringResource(R.string.fn_pref_battery_saver),
+                    summary = stringResource(R.string.fn_pref_battery_saver_summary),
+                    checked = fnBatterySaver,
+                    onCheckedChange = {
+                        fnBatterySaver = it
+                        AutoTestScheduler.sync(fnContext)
+                    }
+                )
+                SettingsSwitchItem(
+                    title = stringResource(R.string.fn_pref_auto_test),
+                    summary = stringResource(R.string.fn_pref_auto_test_summary),
+                    checked = fnAutoTest,
+                    onCheckedChange = {
+                        fnAutoTest = it
+                        AutoTestScheduler.sync(fnContext)
+                    }
+                )
+                SettingsEditItem(
+                    title = stringResource(R.string.fn_pref_auto_test_interval),
+                    value = fnAutoTestInterval,
+                    enabled = fnAutoTest,
+                    keyboardNumber = true,
+                    onValueChanged = {
+                        fnAutoTestInterval = it
+                        AutoTestScheduler.sync(fnContext)
+                    }
+                )
+                SettingsEditItem(
+                    title = stringResource(R.string.fn_pref_auto_test_failures),
+                    value = fnAutoTestFailures,
+                    enabled = fnAutoTest,
+                    keyboardNumber = true,
+                    onValueChanged = { fnAutoTestFailures = it }
+                )
+            }
+
             CollapsiblePreferenceGroupHeader(
                 title = stringResource(R.string.title_ui_settings),
                 expanded = uiSettingsExpanded,
