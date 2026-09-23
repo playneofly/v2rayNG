@@ -27,15 +27,79 @@ jobs:
         cmdline-tools-version: '14742923'
         packages: 'platforms;android-37.0 build-tools;37.0.0 platform-tools'
 
+    - name: Cache NDK
+      id: cache-ndk
+      uses: actions/cache@v6
+      with:
+        path: ${{ env.ANDROID_HOME }}/ndk
+        key: filernet-ndk-${{ runner.os }}-29.0.14206865
+
     - name: Install NDK
       run: |
-        echo "y" | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager \
-          --channel=0 \
-          --install "ndk;29.0.14206865"
-        echo "NDK_HOME=$ANDROID_HOME/ndk/29.0.14206865" >> $GITHUB_ENV
-        sed -i '10i\
-        
-            ndkVersion = "29.0.14206865"' ${{ github.workspace }}/V2rayNG/app/build.gradle.kts
+        set -uo pipefail
+        SM="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+        echo "ANDROID_HOME=$ANDROID_HOME"
+        echo "java: $(java -version 2>&1 | head -1)"
+        # 1) Make sure SDK licenses are accepted (harmless if already done)
+        yes | "$SM" --licenses > /dev/null 2>&1 || true
+        NDK_VER="29.0.14206865"
+        # 2) Fast path: NDK already present (e.g. restored from cache)
+        if [ -d "$ANDROID_HOME/ndk/$NDK_VER" ] && [ -x "$ANDROID_HOME/ndk/$NDK_VER/ndk-build" ]; then
+          echo "NDK $NDK_VER already present (cache hit) - skipping download"
+        else
+          # 3) Install pinned NDK, up to 3 attempts (transient network retries)
+          installed=""
+          for attempt in 1 2 3; do
+            echo "=== NDK install attempt $attempt of 3 ==="
+            if timeout -k 60 1500 "$SM" --install "ndk;$NDK_VER" > sdkmanager.ndk.log 2>&1; then
+              installed="yes"
+              break
+            fi
+            echo "=== attempt $attempt failed; last log lines: ==="
+            tail -n 15 sdkmanager.ndk.log || true
+            sleep 15
+          done
+          # 4) Fallback: newest available NDK of the same major, then older majors
+          if [ -z "$installed" ]; then
+            echo "=== pinned NDK not installable; available NDKs: ==="
+            "$SM" --list 2>/dev/null | grep -E '^  ndk;' > available-ndks.txt || true
+            cat available-ndks.txt || true
+            for major in 29 28 27 26; do
+              ALT=$(grep -E "^  ndk;${major}\." available-ndks.txt | awk -v skip="ndk;$NDK_VER" '$1 != skip {print $1}' | sort -V | tail -1 || true)
+              if [ -n "$ALT" ]; then
+                NDK_VER=${ALT#ndk;}
+                echo "=== installing fallback NDK: $ALT ==="
+                if timeout -k 60 1500 "$SM" --install "$ALT" >> sdkmanager.ndk.log 2>&1; then
+                  installed="yes"
+                  break
+                fi
+              fi
+            done
+          fi
+          # 5) Verify the installation actually landed on disk
+          if [ -z "$installed" ] || [ ! -d "$ANDROID_HOME/ndk/$NDK_VER" ]; then
+            echo "NDK installation failed. Full sdkmanager log:"
+            cat sdkmanager.ndk.log || true
+            ls -la "$ANDROID_HOME" || true
+            exit 1
+          fi
+        fi
+        [ -x "$ANDROID_HOME/ndk/$NDK_VER/ndk-build" ] || { echo "ERROR: ndk-build missing in NDK $NDK_VER"; exit 1; }
+        echo "NDK_HOME=$ANDROID_HOME/ndk/$NDK_VER" >> "$GITHUB_ENV"
+        # 6) Inject ndkVersion into app/build.gradle.kts (idempotent, anchored at compileSdk)
+        GRADLE="$GITHUB_WORKSPACE/V2rayNG/app/build.gradle.kts"
+        if ! grep -q "ndkVersion" "$GRADLE"; then
+          sed -i "/^    compileSdk/i\    ndkVersion = \"$NDK_VER\"" "$GRADLE"
+        fi
+        echo "=== ndkVersion in build.gradle.kts ==="
+        grep -n "ndkVersion" "$GRADLE"
+
+    - name: Save NDK cache
+      if: always()
+      uses: actions/cache/save@v6
+      with:
+        path: ${{ env.ANDROID_HOME }}/ndk
+        key: filernet-ndk-${{ runner.os }}-29.0.14206865
 
     - name: Restore cached libhevtun
       id: cache-libhevtun-restore
