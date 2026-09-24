@@ -94,6 +94,7 @@ private fun AddServerOption(
             .fillMaxWidth()
             .clickable(onClick = onClick),
         color = FilternetGlassColor,
+        contentColor = MaterialTheme.colorScheme.onSurface,
         shape = FilternetCardShape,
         border = FilternetGlassBorder,
     ) {

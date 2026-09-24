@@ -57,6 +57,7 @@ internal fun MainNavigationBar(
                 .fillMaxWidth()
                 .height(68.dp),
             color = FilternetGlassColor,
+        contentColor = MaterialTheme.colorScheme.onSurface,
             shape = RoundedCornerShape(24.dp),
             border = FilternetGlassBorder,
             shadowElevation = 18.dp,

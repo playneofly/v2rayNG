@@ -59,8 +59,8 @@ private val drawerItems = primaryDrawerItems + listOf(
     MainDestination.Promotion,
     MainDestination.Logcat,
     MainDestination.CheckUpdate,
-    MainDestination.BackupRestore,
-    MainDestination.About
+    MainDestination.BackupRestore
+    // FILTERNET: "About" removed on request.
 )
 
 @Composable

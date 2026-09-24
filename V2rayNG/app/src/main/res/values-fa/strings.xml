@@ -405,7 +405,7 @@
     <string name="connection_test_error">آزمایش اتصال ناموفق بود: %s</string>
     <string name="connection_test_fail">اینترنت در دسترس نیست</string>
     <string name="connection_test_error_status_code">کد خطا: #%d</string>
-    <string name="connection_connected">متصل است.\nبرای بررسی اتصال ضربه بزنید.</string>
+    <string name="connection_connected">متصل</string>
     <string name="connection_not_connected">متصل نیست</string>
     <string name="connection_running_task_left">آزمایش‌های در حال اجرا: %s</string>
 
@@ -614,4 +614,5 @@
     <string name="fn_crash_desc">دفعه‌ی قبل FILTERNET به خاطر خطای زیر بسته شد. روی «کپی خطا» بزنید و متن را برای پشتیبانی بفرستید تا برطرف شود.</string>
     <string name="fn_crash_copy">کپی خطا</string>
     <string name="fn_no_server_selected">سروری انتخاب نشده</string>
+    <string name="fn_status_connected">متصل</string>
 </resources>

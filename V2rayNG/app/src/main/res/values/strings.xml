@@ -405,7 +405,7 @@
     <string name="connection_test_error">Connection test failed: %s</string>
     <string name="connection_test_fail">Internet unavailable</string>
     <string name="connection_test_error_status_code">Error code: #%d</string>
-    <string name="connection_connected">Connected. Tap to check connection.</string>
+    <string name="connection_connected">Connected</string>
     <string name="connection_not_connected">Not connected</string>
     <string name="connection_running_task_left">Tests running: %s</string>
 
@@ -614,4 +614,5 @@
     <string name="fn_crash_desc">Last time FILTERNET stopped because of the error below. Tap Copy and send it to support so it can be fixed.</string>
     <string name="fn_crash_copy">Copy the error</string>
     <string name="fn_no_server_selected">No server selected</string>
+    <string name="fn_status_connected">Connected</string>
 </resources>

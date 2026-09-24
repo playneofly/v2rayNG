@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Shapes
+import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.dynamicDarkColorScheme
 import androidx.compose.material3.dynamicLightColorScheme
@@ -205,6 +206,11 @@ fun AppTheme(
     CompositionLocalProvider(
         LocalDarkTheme provides darkTheme,
         LocalAppSnackbar provides snackbarController,
+        // FILTERNET: Material's default LocalContentColor is plain black. Any Text
+        // that does not set a colour of its own (the up/down figures, the server
+        // name, the traffic statistics) rendered black-on-dark and was invisible.
+        // Anchoring it to the theme fixes every one of them at once.
+        LocalContentColor provides colorScheme.onBackground,
     ) {
         MaterialTheme(
             colorScheme = colorScheme,

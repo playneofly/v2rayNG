@@ -95,7 +95,8 @@ private fun TrafficStatsScreen(onBackClick: () -> Unit) {
                     Column(modifier = Modifier.padding(16.dp)) {
                         Text(
                             text = stringResource(R.string.fn_traffic_week),
-                            fontWeight = FontWeight.SemiBold
+                            fontWeight = FontWeight.SemiBold,
+                            color = MaterialTheme.colorScheme.onSurface,
                         )
                         Spacer(Modifier.height(12.dp))
                         BarChart(
@@ -139,7 +140,11 @@ private fun TrafficStatsScreen(onBackClick: () -> Unit) {
 private fun SummaryCard(title: String, down: Long, up: Long) {
     Card(modifier = Modifier.fillMaxWidth()) {
         Column(modifier = Modifier.padding(16.dp)) {
-            Text(text = title, fontWeight = FontWeight.SemiBold)
+            Text(
+                text = title,
+                fontWeight = FontWeight.SemiBold,
+                color = MaterialTheme.colorScheme.onSurface,
+            )
             Spacer(Modifier.height(6.dp))
             Row(
                 modifier = Modifier.fillMaxWidth(),

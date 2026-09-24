@@ -119,6 +119,7 @@ internal fun MainTrafficScreen() {
         Surface(
             modifier = Modifier.fillMaxWidth(),
             color = FilternetGlassColor,
+        contentColor = MaterialTheme.colorScheme.onSurface,
             shape = FilternetCardShape,
             border = FilternetGlassBorder,
         ) {
@@ -153,6 +154,7 @@ internal fun MainTrafficScreen() {
         Surface(
             modifier = Modifier.fillMaxWidth(),
             color = FilternetGlassColor,
+        contentColor = MaterialTheme.colorScheme.onSurface,
             shape = FilternetCardShape,
             border = FilternetGlassBorder,
         ) {
@@ -196,6 +198,7 @@ private fun TrafficSummary(title: String, value: Long, modifier: Modifier = Modi
     Surface(
         modifier = modifier,
         color = FilternetGlassColor,
+        contentColor = MaterialTheme.colorScheme.onSurface,
         shape = RoundedCornerShape(18.dp),
         border = FilternetGlassBorder,
     ) {
@@ -344,7 +347,7 @@ internal fun MainSettingsHub(onNavigate: (MainDestination) -> Unit) {
                 MainDestination.BackupRestore to R.string.fn_settings_backup_sub,
                 MainDestination.Logcat to R.string.fn_settings_logcat_sub,
                 MainDestination.CheckUpdate to R.string.fn_settings_update_sub,
-                MainDestination.About to R.string.fn_settings_about_sub,
+                // FILTERNET: the "About" row was removed on request.
             ),
             onNavigate = onNavigate,
         )
@@ -386,6 +389,7 @@ private fun SettingsSection(
         Surface(
             modifier = Modifier.fillMaxWidth(),
             color = FilternetGlassColor,
+        contentColor = MaterialTheme.colorScheme.onSurface,
             shape = FilternetCardShape,
             border = FilternetGlassBorder,
         ) {

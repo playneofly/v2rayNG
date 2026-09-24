@@ -197,18 +197,9 @@ internal fun MainHomeScreen(
             },
         )
 
-        Text(
-            text = displayText,
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            maxLines = 2,
-            overflow = TextOverflow.Ellipsis,
-            textAlign = TextAlign.Center,
-            modifier = Modifier
-                .clickable(onClick = onTestCurrent)
-                .padding(horizontal = 24.dp, vertical = 4.dp),
-        )
-
+        // FILTERNET: the "Connected. Tap to check connection." line under the orb
+        // was noise. The same information now lives in the traffic panel below,
+        // where tapping it actually runs the connectivity test.
         Spacer(Modifier.height(8.dp))
 
         SmartConnectButton(onClick = { if (hasAnyServer) onFindBest() else onNoServer() })
@@ -218,6 +209,8 @@ internal fun MainHomeScreen(
         LiveTrafficPanel(
             sample = speed,
             isRunning = isRunning,
+            statusText = displayText,
+            onStatusClick = onTestCurrent,
         )
 
         Spacer(Modifier.height(12.dp))
@@ -237,6 +230,7 @@ private fun ActiveServerPanel(
             .fillMaxWidth()
             .clickable(onClick = onClick),
         color = FilternetGlassColor,
+        contentColor = MaterialTheme.colorScheme.onSurface,
         shape = FilternetCardShape,
         border = FilternetGlassBorder,
         shadowElevation = 8.dp,
@@ -272,12 +266,14 @@ private fun ActiveServerPanel(
 
             Column(Modifier.weight(1f)) {
                 Text(
-                    // FILTERNET: never show a bare placeholder when the name is known.
+                    // FILTERNET: the selected server's name, right next to the ping.
+                    // An explicit colour so it can never fall back to black-on-black.
                     text = server?.remarks?.takeIf { it.isNotBlank() }
                         ?: fallbackName?.takeIf { it.isNotBlank() }
                         ?: stringResource(R.string.fn_no_server_selected),
                     style = MaterialTheme.typography.titleSmall,
                     fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onSurface,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
@@ -565,10 +561,13 @@ private fun BoltGlyph(color: Color, modifier: Modifier = Modifier) {
 private fun LiveTrafficPanel(
     sample: LiveSpeedStore.Sample,
     isRunning: Boolean,
+    statusText: String,
+    onStatusClick: () -> Unit,
 ) {
     Surface(
         modifier = Modifier.fillMaxWidth(),
         color = FilternetGlassColor,
+        contentColor = MaterialTheme.colorScheme.onSurface,
         shape = FilternetCardShape,
         border = FilternetGlassBorder,
     ) {
@@ -603,7 +602,16 @@ private fun LiveTrafficPanel(
                         .height(36.dp)
                         .background(MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f))
                 )
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                // FILTERNET: this block is now genuinely tappable and runs the
+                // connectivity test, and it shows the live result instead of the
+                // old "tap to check" sentence that did nothing.
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(12.dp))
+                        .clickable(enabled = isRunning, onClick = onStatusClick)
+                        .padding(horizontal = 8.dp, vertical = 2.dp),
+                ) {
                     Text(
                         text = stringResource(R.string.app_name),
                         style = MaterialTheme.typography.labelSmall,
@@ -611,12 +619,18 @@ private fun LiveTrafficPanel(
                         maxLines = 1,
                     )
                     Text(
-                        text = if (isRunning) stringResource(R.string.connection_connected)
-                        else stringResource(R.string.connection_not_connected),
+                        text = when {
+                            !isRunning -> stringResource(R.string.connection_not_connected)
+                            statusText.isNotBlank() -> statusText
+                            else -> stringResource(R.string.fn_status_connected)
+                        },
                         style = MaterialTheme.typography.labelMedium,
                         color = if (isRunning) FilternetTokens.Emerald
                         else MaterialTheme.colorScheme.onSurfaceVariant,
                         fontWeight = FontWeight.Bold,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                        textAlign = TextAlign.Center,
                     )
                 }
             }
@@ -643,6 +657,7 @@ private fun SpeedMetric(label: String, value: String, color: Color, arrow: Strin
             text = value,
             style = MaterialTheme.typography.labelLarge,
             fontWeight = FontWeight.Bold,
+            color = MaterialTheme.colorScheme.onSurface,
             maxLines = 1,
         )
     }

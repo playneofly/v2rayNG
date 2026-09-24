@@ -258,6 +258,7 @@ fun MainScreen(
         ) {
             Scaffold(
                 containerColor = Color.Transparent,
+                contentColor = MaterialTheme.colorScheme.onBackground,
                 contentWindowInsets = ScaffoldDefaults.contentWindowInsets,
                 topBar = {
                     if (selectedTab == MainRootTab.Servers) {
@@ -473,12 +474,17 @@ private fun MainBrandTopBar(
                     }
                 }
             },
+            // FILTERNET: no hamburger on the home tab - everything it offered is
+            // reachable from the bottom navigation and the settings tab. It stays
+            // on the other tabs so the drawer is never unreachable.
             navigationIcon = {
-                IconButton(onClick = onMenuClick) {
-                    Icon(
-                        painter = painterResource(R.drawable.ic_menu_24dp),
-                        contentDescription = stringResource(R.string.acc_open_menu),
-                    )
+                if (tab != MainRootTab.Home) {
+                    IconButton(onClick = onMenuClick) {
+                        Icon(
+                            painter = painterResource(R.drawable.ic_menu_24dp),
+                            contentDescription = stringResource(R.string.acc_open_menu),
+                        )
+                    }
                 }
             },
             actions = {
@@ -493,6 +499,9 @@ private fun MainBrandTopBar(
             },
             colors = TopAppBarDefaults.topAppBarColors(
                 containerColor = Color.Transparent,
+                titleContentColor = MaterialTheme.colorScheme.onBackground,
+                navigationIconContentColor = MaterialTheme.colorScheme.onBackground,
+                actionIconContentColor = MaterialTheme.colorScheme.onBackground,
                 scrolledContainerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.9f),
             ),
         )
