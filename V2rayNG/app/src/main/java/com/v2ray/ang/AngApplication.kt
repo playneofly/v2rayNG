@@ -7,6 +7,7 @@ import androidx.work.Configuration
 import androidx.work.WorkManager
 import com.v2ray.ang.AppConfig.ANG_PACKAGE
 import com.v2ray.ang.handler.AppLocaleManager
+import com.v2ray.ang.handler.FilternetCrashHandler
 import com.v2ray.ang.handler.MmkvManager
 import com.v2ray.ang.handler.SettingsManager
 import com.v2ray.ang.ui.compose.ThemeManager
@@ -35,17 +36,23 @@ class AngApplication : Application() {
     override fun onCreate() {
         super.onCreate()
 
+        // FILTERNET: must be the very first thing, so any later failure is recorded
+        // and shown to the user instead of a bare "keeps stopping" system dialog.
+        FilternetCrashHandler.install(this)
+
         MmkvManager.initialize(this)
 
         AppLocaleManager.initialize(this)
 
-        // Initialize WorkManager with the custom configuration
-        WorkManager.initialize(this, workManagerConfiguration)
+        // FILTERNET: WorkManager throws when something already initialized it
+        // (App Startup, another process, a restart of the same process). That must
+        // never take the whole app down.
+        runCatching { WorkManager.initialize(this, workManagerConfiguration) }
 
         // Ensure critical preference defaults are present in MMKV early
-        SettingsManager.initApp(this)
+        runCatching { SettingsManager.initApp(this) }
 
         // Initialize theme state from MMKV
-        ThemeManager.refresh()
+        runCatching { ThemeManager.refresh() }
     }
 }

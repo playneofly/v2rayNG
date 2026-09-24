@@ -11,6 +11,7 @@ import com.v2ray.ang.dto.GroupMapItem
 import com.v2ray.ang.dto.LocateTarget
 import com.v2ray.ang.dto.RealPingResult
 import com.v2ray.ang.dto.TestServiceMessage
+import com.v2ray.ang.handler.MmkvManager
 import com.v2ray.ang.dto.entities.ProfileItem
 import com.v2ray.ang.dto.entities.ServersCache
 import com.v2ray.ang.dto.entities.SubscriptionCache
@@ -485,6 +486,11 @@ class MainViewModel(
                 val selectedServers = loadGroup(selectedGroup, forceRefresh)
                 updateGroupUi(selectedGroup, selectedServers)
 
+                // FILTERNET: make sure *some* server is always selected. Without this the
+                // connect button silently does nothing right after importing a
+                // subscription, because selectedGuid is still empty.
+                ensureServerSelected(selectedServers)
+
                 if (!initialPageReady.isCompleted) {
                     initialPageReady.complete(Unit)
                 }
@@ -895,15 +901,96 @@ class MainViewModel(
      * with the lowest positive delay. The activity is notified through
      * [setOnBestServerPicked] so it can restart the tunnel on the new server.
      */
+    /**
+     * FILTERNET: guarantees a selected server exists.
+     * Returns true when a server is (now) selected.
+     */
+    private fun ensureServerSelected(servers: List<ServersCache>): Boolean {
+        val current = dataSource.getSelectServer()
+        if (!current.isNullOrEmpty()) {
+            if (uiState.value.selectedGuid != current) {
+                _uiState.update { it.copy(selectedGuid = current) }
+            }
+            return true
+        }
+        val first = servers.firstOrNull()?.guid
+            ?: MmkvManager.decodeAllServerList().firstOrNull()
+            ?: return false
+        updateSelectedGuid(first)
+        return true
+    }
+
+    /** FILTERNET: true when the user has at least one profile stored, in any group. */
+    fun hasAnyServer(): Boolean =
+        runCatching { MmkvManager.decodeAllServerList().isNotEmpty() }.getOrDefault(false)
+
+    /**
+     * FILTERNET: synchronously guarantees that a server is selected, reading straight
+     * from storage. Called by the connect button so it can never be a no-op.
+     *
+     * @return true when a server is selected now.
+     */
+    fun repairSelectedServer(): Boolean = runCatching {
+        val stored = MmkvManager.getSelectServer()
+        val valid = stored?.takeIf { it.isNotEmpty() && MmkvManager.decodeServerConfig(it) != null }
+        val guid = valid ?: MmkvManager.decodeAllServerList()
+            .firstOrNull { MmkvManager.decodeServerConfig(it) != null }
+            ?: return@runCatching false
+        if (guid != stored) MmkvManager.setSelectServer(guid)
+        if (uiState.value.selectedGuid != guid) {
+            _uiState.update { it.copy(selectedGuid = guid) }
+        }
+        true
+    }.getOrDefault(false)
+
+    /** FILTERNET: display name of the selected server, resolved straight from storage. */
+    fun selectedServerNameOrNull(): String? = runCatching {
+        val guid = uiState.value.selectedGuid?.takeIf { it.isNotEmpty() }
+            ?: MmkvManager.getSelectServer()?.takeIf { it.isNotEmpty() }
+            ?: return@runCatching null
+        MmkvManager.decodeServerConfig(guid)?.remarks?.takeIf { it.isNotBlank() }
+    }.getOrNull()
+
+    /**
+     * FILTERNET: "Best server" now measures EVERY stored profile (all groups, every
+     * time it is pressed) and then connects to the lowest-latency one.
+     */
     fun connectBestServer() {
-        if (currentServers().isEmpty()) {
+        val allGuids = MmkvManager.decodeAllServerList()
+        if (allGuids.isEmpty()) {
             toastError(R.string.fn_best_none)
             return
         }
         pendingBestSelection = true
         _uiState.update { it.copy(isFindingBest = true) }
         toast(R.string.fn_best_searching)
-        testAllRealPing()
+        testEveryServer(allGuids)
+    }
+
+    /** FILTERNET: bulk real-ping across an explicit guid list (ignores group scoping). */
+    private fun testEveryServer(guids: List<String>) {
+        cancelAllPing()
+        val groupId = uiState.value.selectedGroupId
+        mutableServerGroupState(groupId).update { current ->
+            current.copy(
+                servers = current.servers.map { it.copy(testDelayMillis = 0L) },
+                rows = current.rows.map { it.copy(testDelayMillis = 0L) },
+            )
+        }
+        val request = testRequests.beginBulk(groupId)
+        val message = TestServiceMessage(
+            key = AppConfig.MSG_MEASURE_CONFIG_START,
+            subscriptionId = groupId,
+            serverGuids = guids,
+            onlyTcp = false
+        )
+        _uiState.update { it.copy(isTesting = true, status = MainStatus.Testing) }
+        bulkTestJob = viewModelScope.launch {
+            withContext(ioDispatcher) {
+                dataSource.clearAllTestDelayResults(guids)
+            }
+            dataSource.sendMsg2TestService(message, request.id)
+        }
     }
 
     fun setOnBestServerPicked(callback: ((String) -> Unit)?) {
@@ -912,23 +999,36 @@ class MainViewModel(
 
     private fun applyBestServer() {
         viewModelScope.launch {
-            val best = currentServers()
-                .filter { it.testDelayMillis > 0L }
-                .minByOrNull { it.testDelayMillis }
+            // FILTERNET: scan every stored profile, not just the visible group.
+            val best = withContext(ioDispatcher) {
+                MmkvManager.decodeAllServerList()
+                    .mapNotNull { guid ->
+                        val delay = MmkvManager.decodeServerAffiliationInfo(guid)
+                            ?.testDelayMillis ?: 0L
+                        if (delay <= 0L) return@mapNotNull null
+                        val profile = MmkvManager.decodeServerConfig(guid)
+                            ?: return@mapNotNull null
+                        Triple(guid, profile, delay)
+                    }
+                    .minByOrNull { it.third }
+            }
             _uiState.update { it.copy(isFindingBest = false) }
             if (best == null) {
                 toastError(R.string.fn_best_none)
                 return@launch
             }
-            updateSelectedGuid(best.guid)
-            toastSuccess(
-                getString(
-                    R.string.fn_best_found,
-                    best.profile.remarks,
-                    best.testDelayMillis.toInt()
-                )
-            )
-            onBestServerPicked?.invoke(best.guid)
+            val (guid, profile, delay) = best
+
+            // Move the UI to the group that owns the winning server, so the user can
+            // actually see it highlighted in the list.
+            val ownerGroup = profile.subscriptionId.orEmpty()
+            if (ownerGroup.isNotEmpty() && ownerGroup != uiState.value.selectedGroupId) {
+                subscriptionIdChanged(ownerGroup)
+            }
+
+            updateSelectedGuid(guid)
+            toastSuccess(getString(R.string.fn_best_found, profile.remarks, delay.toInt()))
+            onBestServerPicked?.invoke(guid)
         }
     }
 

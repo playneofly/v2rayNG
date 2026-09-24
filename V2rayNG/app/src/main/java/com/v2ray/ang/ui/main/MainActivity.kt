@@ -1,5 +1,14 @@
 package com.v2ray.ang.ui.main
 
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.unit.dp
+import com.v2ray.ang.handler.FilternetCrashHandler
 import android.content.Intent
 import android.net.VpnService
 import android.os.Build
@@ -119,6 +128,52 @@ class MainActivity : HelperBaseComponentActivity() {
     @Composable
     override fun ScreenContent() {
         BackHandler { moveTaskToBack(false) }
+
+        // FILTERNET: if the app died last time, show the real reason instead of
+        // leaving the user with the bare "FILTERNET keeps stopping" system dialog.
+        val ctx = androidx.compose.ui.platform.LocalContext.current
+        var crashReport by androidx.compose.runtime.remember {
+            androidx.compose.runtime.mutableStateOf(FilternetCrashHandler.consume(ctx))
+        }
+        crashReport?.let { report ->
+            androidx.compose.material3.AlertDialog(
+                onDismissRequest = { crashReport = null },
+                title = { androidx.compose.material3.Text(stringResource(R.string.fn_crash_title)) },
+                text = {
+                    androidx.compose.foundation.layout.Column(
+                        modifier = androidx.compose.ui.Modifier
+                            .heightIn(max = 320.dp)
+                            .verticalScroll(rememberScrollState())
+                    ) {
+                        androidx.compose.material3.Text(
+                            text = stringResource(R.string.fn_crash_desc),
+                            style = androidx.compose.material3.MaterialTheme.typography.bodySmall,
+                        )
+                        androidx.compose.foundation.layout.Spacer(
+                            androidx.compose.ui.Modifier.height(10.dp)
+                        )
+                        androidx.compose.material3.Text(
+                            text = report,
+                            style = androidx.compose.material3.MaterialTheme.typography.labelSmall,
+                            fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
+                        )
+                    }
+                },
+                confirmButton = {
+                    androidx.compose.material3.TextButton(onClick = {
+                        Utils.setClipboard(ctx, report)
+                        toastSuccess(R.string.toast_success)
+                        crashReport = null
+                    }) { androidx.compose.material3.Text(stringResource(R.string.fn_crash_copy)) }
+                },
+                dismissButton = {
+                    androidx.compose.material3.TextButton(onClick = { crashReport = null }) {
+                        androidx.compose.material3.Text(stringResource(android.R.string.ok))
+                    }
+                },
+            )
+        }
+
         // FILTERNET: brand splash overlay on top of the main screen.
         SplashOverlay {
         MainScreen(
@@ -204,9 +259,15 @@ class MainActivity : HelperBaseComponentActivity() {
     }
 
     private fun startV2Ray() {
+        // FILTERNET: self-healing. The connect button used to do nothing whenever
+        // uiState had no selected guid yet (first launch, right after an import, or
+        // while the group list was still loading). Now we repair the selection from
+        // storage and carry on, and only give up when there is truly no profile.
         if (mainViewModel.uiState.value.selectedGuid.isNullOrEmpty()) {
-            toast(R.string.title_file_chooser)
-            return
+            if (!mainViewModel.repairSelectedServer()) {
+                toastError(R.string.fn_no_server_msg)
+                return
+            }
         }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.CINNAMON_BUN
         ) {

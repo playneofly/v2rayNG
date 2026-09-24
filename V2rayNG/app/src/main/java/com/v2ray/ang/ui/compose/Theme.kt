@@ -5,7 +5,9 @@ import android.os.Build
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Shapes
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.dynamicDarkColorScheme
 import androidx.compose.material3.dynamicLightColorScheme
@@ -20,6 +22,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.unit.dp
 import androidx.core.view.WindowCompat
 import com.v2ray.ang.AppConfig
 import com.v2ray.ang.handler.MmkvManager
@@ -28,106 +31,110 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 
 private val LightColor = lightColorScheme(
-    primary = Color(0xFF0F3057), // FILTERNET Navy
-    onPrimary = Color(0xFFFFFFFF), // White
-    primaryContainer = Color(0xFFD3E5F7), // Pale Navy
-    onPrimaryContainer = Color(0xFF08243D), // Deep Navy
-    secondary = Color(0xFF00838F), // Teal Cyan
-    onSecondary = Color(0xFFFFFFFF), // White
-    secondaryContainer = Color(0xFFB9F0F5), // Pale Teal
-    onSecondaryContainer = Color(0xFF00353D), // Dark Teal
-    tertiary = Color(0xFF3D5A98), // Steel Blue
-    onTertiary = Color(0xFFFFFFFF), // White
-    tertiaryContainer = Color(0xFFDAE2FF), // Pale Blue
-    onTertiaryContainer = Color(0xFF1A2C57), // Deep Blue
-    error = Color(0xFFBA1A1A), // Red
-    errorContainer = Color(0xFFFFDAD6), // Light Red
-    onError = Color(0xFFFFFFFF), // White
-    onErrorContainer = Color(0xFF410002), // Dark Red
-    background = Color(0xFFFFFFFF), // White
-    onBackground = Color(0xFF10192A), // Navy
-    surface = Color(0xFFFFFFFF), // White
-    onSurface = Color(0xFF10192A), // Navy
-    surfaceVariant = Color(0xFFE3EBF3), // Light Blue Gray
-    onSurfaceVariant = Color(0xFF414A56), // Dark Slate
-    outline = Color(0xFF71809A), // Blue Gray
-    outlineVariant = Color(0xFFC3CFDD), // Light Blue Gray
-    inverseSurface = Color(0xFF1E2A3C), // Dark Navy
-    inverseOnSurface = Color(0xFFF4F8FC), // Very Light Blue
-    inversePrimary = Color(0xFFB9D4F0), // Light Blue
-    scrim = Color(0xFF000000), // Black
-    surfaceTint = Color(0xFF0F3057), // FILTERNET Navy
-    surfaceContainerLowest = Color(0xFFFFFFFF), // White
-    surfaceContainerLow = Color(0xFFF5F8FC), // Very Light Blue
-    surfaceContainer = Color(0xFFEFF3F8), // Light Blue
-    surfaceContainerHigh = Color(0xFFE9EEF5), // Light Blue
-    surfaceContainerHighest = Color(0xFFE2E8F0), // Light Blue
+    primary = Color(0xFF6D3BE8),
+    onPrimary = Color.White,
+    primaryContainer = Color(0xFFE9DDFF),
+    onPrimaryContainer = Color(0xFF250067),
+    secondary = Color(0xFF007C91),
+    onSecondary = Color.White,
+    secondaryContainer = Color(0xFFB8EAFA),
+    onSecondaryContainer = Color(0xFF001F26),
+    tertiary = Color(0xFF006B55),
+    onTertiary = Color.White,
+    tertiaryContainer = Color(0xFF8EF8D3),
+    onTertiaryContainer = Color(0xFF002018),
+    error = Color(0xFFBA1A1A),
+    errorContainer = Color(0xFFFFDAD6),
+    onError = Color.White,
+    onErrorContainer = Color(0xFF410002),
+    background = Color(0xFFF9F7FF),
+    onBackground = Color(0xFF1C1A22),
+    surface = Color(0xFFF9F7FF),
+    onSurface = Color(0xFF1C1A22),
+    surfaceVariant = Color(0xFFE8E0EE),
+    onSurfaceVariant = Color(0xFF4A454F),
+    outline = Color(0xFF7B757F),
+    outlineVariant = Color(0xFFCCC4D0),
+    inverseSurface = Color(0xFF312F36),
+    inverseOnSurface = Color(0xFFF4EFF8),
+    inversePrimary = Color(0xFFCFBCFF),
+    scrim = Color.Black,
+    surfaceTint = Color(0xFF6D3BE8),
+    surfaceContainerLowest = Color.White,
+    surfaceContainerLow = Color(0xFFF3F0FA),
+    surfaceContainer = Color(0xFFEDEAF4),
+    surfaceContainerHigh = Color(0xFFE7E4EE),
+    surfaceContainerHighest = Color(0xFFE1DEE8),
 )
 
 private val DarkColor = darkColorScheme(
-    primary = Color(0xFF6FD3F2), // Bright Cyan Blue
-    onPrimary = Color(0xFF003347), // Deep Navy
-    primaryContainer = Color(0xFF0E4A66), // Navy Blue
-    onPrimaryContainer = Color(0xFFD9F4FF), // Pale Cyan
-    secondary = Color(0xFF2ED3E8), // Cyan
-    onSecondary = Color(0xFF003741), // Deep Teal
-    secondaryContainer = Color(0xFF004A57), // Dark Teal
-    onSecondaryContainer = Color(0xFFCBF6FF), // Pale Cyan
-    tertiary = Color(0xFFA7BDFF), // Soft Blue
-    onTertiary = Color(0xFF1B2A55), // Deep Blue
-    tertiaryContainer = Color(0xFF27365E), // Dark Blue
-    onTertiaryContainer = Color(0xFFDCE3FF), // Pale Blue
-    error = Color(0xFFFFB4AB), // Light Red
-    errorContainer = Color(0xFF93000A), // Dark Red
-    onError = Color(0xFF690005), // Deep Red
-    onErrorContainer = Color(0xFFFFDAD6), // Light Red
-    background = Color(0xFF0A111E), // Near Black Navy
-    onBackground = Color(0xFFE6EDF5), // Light Blue
-    surface = Color(0xFF0A111E), // Near Black Navy
-    onSurface = Color(0xFFE6EDF5), // Light Blue
-    surfaceVariant = Color(0xFF414A56), // Dark Slate
-    onSurfaceVariant = Color(0xFFC3CBD6), // Light Slate
-    outline = Color(0xFF8C99AB), // Blue Gray
-    outlineVariant = Color(0xFF414A56), // Dark Slate
-    inverseSurface = Color(0xFFE6EDF5), // Light Blue
-    inverseOnSurface = Color(0xFF10192A), // Navy
-    inversePrimary = Color(0xFF0F3057), // FILTERNET Navy
-    scrim = Color(0xFF000000), // Black
-    surfaceTint = Color(0xFF6FD3F2), // Bright Cyan Blue
-    surfaceContainerLowest = Color(0xFF060B14), // Deeper Navy Black
-    surfaceContainerLow = Color(0xFF0E1626), // Dark Navy
-    surfaceContainer = Color(0xFF10192A), // FILTERNET Navy
-    surfaceContainerHigh = Color(0xFF1A2436), // Medium Navy
-    surfaceContainerHighest = Color(0xFF253044), // Lighter Navy
+    primary = Color(0xFFB99AFF),
+    onPrimary = Color(0xFF24005D),
+    primaryContainer = Color(0xFF4B1EA7),
+    onPrimaryContainer = Color(0xFFEADDFF),
+    secondary = FilternetTokens.Cyan,
+    onSecondary = Color(0xFF003640),
+    secondaryContainer = Color(0xFF004E5C),
+    onSecondaryContainer = Color(0xFFA6EEFF),
+    tertiary = FilternetTokens.Emerald,
+    onTertiary = Color(0xFF003829),
+    tertiaryContainer = Color(0xFF00513D),
+    onTertiaryContainer = Color(0xFF84F8CC),
+    error = Color(0xFFFFB3BA),
+    errorContainer = Color(0xFF930019),
+    onError = Color(0xFF67000E),
+    onErrorContainer = Color(0xFFFFDADF),
+    background = FilternetTokens.Ink,
+    onBackground = Color(0xFFF3EFFB),
+    surface = FilternetTokens.Ink,
+    onSurface = Color(0xFFF3EFFB),
+    surfaceVariant = Color(0xFF494351),
+    onSurfaceVariant = Color(0xFFCCC4D1),
+    outline = Color(0xFF958E9C),
+    outlineVariant = Color(0xFF494351),
+    inverseSurface = Color(0xFFF3EFFB),
+    inverseOnSurface = Color(0xFF302D35),
+    inversePrimary = Color(0xFF6D3BE8),
+    scrim = Color.Black,
+    surfaceTint = Color(0xFFB99AFF),
+    surfaceContainerLowest = Color(0xFF050309),
+    surfaceContainerLow = Color(0xFF100D17),
+    surfaceContainer = Color(0xFF15111E),
+    surfaceContainerHigh = Color(0xFF201A2B),
+    surfaceContainerHighest = Color(0xFF2A2336),
 )
 
-// Semantic Colors
-val colorPing = Color(0xFF009966) // Green
-val colorPingRed = Color(0xFFFF0099) // Pink Red
-val colorConfigType = Color(0xFF0B7C92) // Teal Cyan
+private val FilternetShapes = Shapes(
+    extraSmall = RoundedCornerShape(8.dp),
+    small = RoundedCornerShape(12.dp),
+    medium = RoundedCornerShape(18.dp),
+    large = RoundedCornerShape(26.dp),
+    extraLarge = RoundedCornerShape(34.dp),
+)
 
-// FILTERNET: per-protocol badge colors so the server type is recognizable at a glance.
-val colorTypeVless = Color(0xFF4F8DF7) // Blue
-val colorTypeVmess = Color(0xFF00BCD4) // Cyan
-val colorTypeTrojan = Color(0xFF34C759) // Green
-val colorTypeShadowsocks = Color(0xFFFF9F0A) // Orange
-val colorTypeHysteria = Color(0xFFAF7BFF) // Purple
-val colorTypeWireguard = Color(0xFFFF6482) // Pink
-val colorTypeOther = Color(0xFF9AA5B1) // Gray
-val colorFabActive = Color(0xFF1D4ED8) // Brand Blue
-val colorFabInactiveLight = Color(0xFF9C9C9C) // Gray
-val colorFabInactiveDark = Color(0xFF646464) // Dark Gray
-val dividerColorLight = Color(0xFFE0E0E0) // Light Gray
-val dividerColorDark = Color(0xFF424242) // Dark Gray
+val colorPing = Color(0xFF34E0A1)
+val colorPingRed = Color(0xFFFF5D73)
+val colorConfigType = Color(0xFF22D3EE)
+val colorTypeVless = Color(0xFF7CA8FF)
+val colorTypeVmess = Color(0xFF22D3EE)
+val colorTypeTrojan = Color(0xFF34E0A1)
+val colorTypeShadowsocks = Color(0xFFFFB347)
+val colorTypeHysteria = Color(0xFFB99AFF)
+val colorTypeWireguard = Color(0xFFFF7A98)
+val colorTypeOther = Color(0xFFA39BAC)
+val colorFabActive = Color(0xFF8B5CF6)
+val colorFabInactiveLight = Color(0xFF8B8491)
+val colorFabInactiveDark = Color(0xFF5F5968)
+val dividerColorLight = Color(0xFFE1DAE7)
+val dividerColorDark = Color(0xFF332D3D)
 
-// Toast Colors 85%
-val toastNormalBgLight = Color(0xD9353A3E) // Dark Gray
-val toastNormalBgDark = Color(0xD94A4F54) // Darker Gray
-val toastSuccessBg = Color(0xD9388E3C) // Green
-val toastErrorBg = Color(0xD9D50000) // Red
-val toastInfoBg = Color(0xD90F3057) // Navy Blue
-val toastIconCircleBg = Color(0x33FFFFFF) // Semi-transparent White
-val toastTextColor = Color.White // White
+val toastNormalBgLight = Color(0xE63A3541)
+val toastNormalBgDark = Color(0xE6231E2B)
+val toastSuccessBg = Color(0xE6007D58)
+val toastErrorBg = Color(0xE69A1831)
+val toastInfoBg = Color(0xE64B1EA7)
+val toastIconCircleBg = Color(0x33FFFFFF)
+val toastTextColor = Color.White
 
 object ThemeManager {
     private val _themeMode = MutableStateFlow(
@@ -151,10 +158,8 @@ object ThemeManager {
     }
 
     fun refresh() {
-        _themeMode.value =
-            MmkvManager.decodeSettingsString(AppConfig.PREF_UI_MODE_NIGHT, "0") ?: "0"
-        _dynamicColorEnabled.value =
-            MmkvManager.decodeSettingsBool(AppConfig.PREF_DYNAMIC_COLOR, false)
+        _themeMode.value = MmkvManager.decodeSettingsString(AppConfig.PREF_UI_MODE_NIGHT, "0") ?: "0"
+        _dynamicColorEnabled.value = MmkvManager.decodeSettingsBool(AppConfig.PREF_DYNAMIC_COLOR, false)
     }
 }
 
@@ -173,7 +178,7 @@ val LocalDarkTheme = compositionLocalOf { false }
 @Composable
 fun AppTheme(
     darkTheme: Boolean = resolveDarkTheme(),
-    content: @Composable () -> Unit
+    content: @Composable () -> Unit,
 ) {
     val dynamicColor by ThemeManager.dynamicColorEnabled.collectAsState()
     val context = LocalContext.current
@@ -181,18 +186,16 @@ fun AppTheme(
         dynamicColor && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S -> {
             if (darkTheme) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)
         }
-
         darkTheme -> DarkColor
         else -> LightColor
     }
     val snackbarController = rememberAppSnackbarController()
-
     val view = LocalView.current
+
     if (!view.isInEditMode) {
         SideEffect {
             val activity = view.context as? Activity ?: return@SideEffect
-            val window = activity.window
-            WindowCompat.getInsetsController(window, view).apply {
+            WindowCompat.getInsetsController(activity.window, view).apply {
                 isAppearanceLightStatusBars = !darkTheme
                 isAppearanceLightNavigationBars = !darkTheme
             }
@@ -201,10 +204,11 @@ fun AppTheme(
 
     CompositionLocalProvider(
         LocalDarkTheme provides darkTheme,
-        LocalAppSnackbar provides snackbarController
+        LocalAppSnackbar provides snackbarController,
     ) {
         MaterialTheme(
-            colorScheme = colorScheme
+            colorScheme = colorScheme,
+            shapes = FilternetShapes,
         ) {
             Box(modifier = Modifier.fillMaxSize()) {
                 AppSnackbarBridge(controller = snackbarController)
