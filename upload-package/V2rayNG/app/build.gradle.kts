@@ -13,8 +13,8 @@ android {
         applicationId = "com.filternet.app"
         minSdk = 24
         targetSdk = 37
-        versionCode = 749
-        versionName = "2.3.9"
+        versionCode = 760
+        versionName = "3.0.0"
 
         val abiFilterList = (properties["ABI_FILTERS"] as? String)?.split(';')
         splits {
@@ -38,9 +38,25 @@ android {
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
+    // FILTERNET: a fixed signing key that ships with the repo, so every build
+    // (local or GitHub Actions) is signed identically and can be installed as an
+    // update on top of a previously installed FILTERNET APK.
+    signingConfigs {
+        create("filternet") {
+            storeFile = file("filternet.jks")
+            storePassword = "filternet"
+            keyAlias = "filternet"
+            keyPassword = "filternet"
+        }
+    }
+
     buildTypes {
+        debug {
+            signingConfig = signingConfigs.getByName("filternet")
+        }
         release {
             isMinifyEnabled = false
+            signingConfig = signingConfigs.getByName("filternet")
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"

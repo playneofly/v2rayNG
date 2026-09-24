@@ -1,5 +1,17 @@
 package com.v2ray.ang.ui.main
 
+import com.v2ray.ang.handler.MmkvManager
+import androidx.compose.ui.text.style.TextOverflow
+import android.widget.Toast
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.material3.Button
+import androidx.compose.material3.FloatingActionButton
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -20,6 +32,7 @@ import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalNavigationDrawer
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
 import androidx.compose.material3.ScaffoldDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
@@ -74,6 +87,10 @@ fun MainScreen(
         mutableStateOf<ServerDeleteTarget?>(null)
     }
     var shareTarget by remember { mutableStateOf<Triple<String, ProfileItem, Boolean>?>(null) }
+    // FILTERNET: "add a server with…" sheet, reachable from the empty state,
+    // the servers-tab FAB and the "no server found" path on the home tab.
+    var showAddServer by remember { mutableStateOf(false) }
+    val context = LocalContext.current
 
     val currentGroupFlow = remember(uiState.selectedGroupId, mainViewModel) {
         mainViewModel.serverGroupState(uiState.selectedGroupId)
@@ -81,6 +98,18 @@ fun MainScreen(
     val currentGroup by currentGroupFlow.collectAsStateWithLifecycle()
     val selectedServer = remember(currentGroup.rows, uiState.selectedGuid) {
         currentGroup.rows.firstOrNull { it.guid == uiState.selectedGuid }
+    }
+    // FILTERNET: name of the selected server, resolved even when it belongs to a
+    // group other than the one currently on screen.
+    val selectedServerName = remember(selectedServer, uiState.selectedGuid) {
+        selectedServer?.remarks
+            ?: uiState.selectedGuid
+                ?.takeIf { it.isNotEmpty() }
+                ?.let { MmkvManager.decodeServerConfig(it)?.remarks }
+    }
+    // FILTERNET: does the user own any profile at all (in any group)?
+    val hasAnyServer = remember(groups, currentGroup.rows, uiState.selectedGuid) {
+        currentGroup.rows.isNotEmpty() || mainViewModel.hasAnyServer()
     }
 
     val removeServer: (String, String) -> Unit = { guid, profileName ->
@@ -170,6 +199,20 @@ fun MainScreen(
         )
     }
 
+    if (showAddServer) {
+        AddServerSheet(
+            onDismiss = { showAddServer = false },
+            onClipboard = {
+                showAddServer = false
+                onAction(MainAction.ImportClipboard)
+            },
+            onQrCode = {
+                showAddServer = false
+                onAction(MainAction.ImportQRcode)
+            },
+        )
+    }
+
     ModalNavigationDrawer(
         drawerState = drawerState,
         drawerContent = {
@@ -240,11 +283,29 @@ fun MainScreen(
                     } else {
                         MainBrandTopBar(
                             tab = selectedTab,
+                            serverName = selectedServerName,
                             isRunning = uiState.isRunning,
                             isLoading = isLoading,
                             onMenuClick = { scope.launch { drawerState.open() } },
                             onQuickImport = { onAction(MainAction.ImportQRcode) },
                         )
+                    }
+                },
+                floatingActionButton = {
+                    // FILTERNET: a real, working "add server" button on the servers tab.
+                    if (selectedTab == MainRootTab.Servers) {
+                        FloatingActionButton(
+                            onClick = { showAddServer = true },
+                            containerColor = MaterialTheme.colorScheme.primary,
+                            contentColor = MaterialTheme.colorScheme.onPrimary,
+                            shape = CircleShape,
+                            modifier = Modifier.padding(bottom = 78.dp),
+                        ) {
+                            Icon(
+                                painter = painterResource(R.drawable.ic_add_24dp),
+                                contentDescription = stringResource(R.string.fn_add_server),
+                            )
+                        }
                     }
                 },
                 bottomBar = {
@@ -273,6 +334,18 @@ fun MainScreen(
                             displayText = displayText,
                             isRunning = uiState.isRunning,
                             isFindingBest = uiState.isFindingBest,
+                            hasAnyServer = hasAnyServer,
+                            onNoServer = {
+                                // FILTERNET: tell the user why nothing happened, then take
+                                // them straight to the place where they can fix it.
+                                Toast.makeText(
+                                    context,
+                                    context.getString(R.string.fn_no_server_msg),
+                                    Toast.LENGTH_LONG,
+                                ).show()
+                                selectedTab = MainRootTab.Servers
+                                showAddServer = true
+                            },
                             onToggleService = { onAction(MainAction.ToggleService) },
                             onFindBest = { onAction(MainAction.ConnectBestServer) },
                             onCancelFindBest = { onAction(MainAction.CancelTesting) },
@@ -281,6 +354,11 @@ fun MainScreen(
                         )
 
                         MainRootTab.Servers -> {
+                            if (groups.isEmpty()) {
+                                // FILTERNET: previously this rendered a blank page when the
+                                // user had no subscription group yet.
+                                NoGroupEmptyState(onAddServer = { showAddServer = true })
+                            }
                             if (groups.isNotEmpty()) {
                                 Column(Modifier.fillMaxSize()) {
                                     if (groups.size > 1) {
@@ -307,6 +385,7 @@ fun MainScreen(
                                     ) { page ->
                                         val group = groups.getOrNull(page) ?: return@HorizontalPager
                                         GroupPagerPage(
+                                            onAddServer = { showAddServer = true },
                                             groupId = group.id,
                                             mainViewModel = mainViewModel,
                                             selectedGuid = uiState.selectedGuid,
@@ -346,6 +425,7 @@ fun MainScreen(
 @Composable
 private fun MainBrandTopBar(
     tab: MainRootTab,
+    serverName: String?,
     isRunning: Boolean,
     isLoading: Boolean,
     onMenuClick: () -> Unit,
@@ -363,12 +443,17 @@ private fun MainBrandTopBar(
                         else MaterialTheme.colorScheme.onSurface,
                     )
                     if (tab == MainRootTab.Home) {
+                        val prefix = stringResource(
+                            if (isRunning) R.string.fn_connected_to
+                            else R.string.fn_not_connected
+                        )
                         Text(
-                            text = stringResource(
-                                if (isRunning) R.string.connection_connected
-                                else R.string.connection_not_connected
-                            ),
+                            text = if (!serverName.isNullOrBlank()) "$prefix · $serverName"
+                            else prefix,
                             style = MaterialTheme.typography.labelSmall,
+                            fontWeight = FontWeight.SemiBold,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
                             color = if (isRunning) FilternetTokens.Emerald
                             else MaterialTheme.colorScheme.onSurfaceVariant,
                         )
@@ -407,6 +492,48 @@ private fun MainBrandTopBar(
                 color = MaterialTheme.colorScheme.primary,
                 trackColor = MaterialTheme.colorScheme.surfaceContainerHighest,
             )
+        }
+    }
+}
+/** FILTERNET: shown on the servers tab before any subscription group exists. */
+@Composable
+private fun NoGroupEmptyState(onAddServer: () -> Unit) {
+    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            Surface(
+                modifier = Modifier
+                    .size(92.dp)
+                    .clickable(onClick = onAddServer),
+                shape = CircleShape,
+                color = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f),
+            ) {
+                Box(contentAlignment = Alignment.Center) {
+                    Icon(
+                        painter = painterResource(R.drawable.ic_add_24dp),
+                        contentDescription = stringResource(R.string.fn_add_server),
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(38.dp),
+                    )
+                }
+            }
+            Spacer(Modifier.height(16.dp))
+            Text(
+                text = stringResource(R.string.fn_no_server_title),
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.Bold,
+            )
+            Spacer(Modifier.height(4.dp))
+            Text(
+                text = stringResource(R.string.fn_no_server_msg),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.padding(horizontal = 40.dp),
+            )
+            Spacer(Modifier.height(18.dp))
+            Button(onClick = onAddServer, shape = CircleShape) {
+                Text(stringResource(R.string.fn_add_server), fontWeight = FontWeight.Bold)
+            }
         }
     }
 }

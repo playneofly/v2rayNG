@@ -205,7 +205,8 @@ class MainActivity : HelperBaseComponentActivity() {
 
     private fun startV2Ray() {
         if (mainViewModel.uiState.value.selectedGuid.isNullOrEmpty()) {
-            toast(R.string.title_file_chooser)
+            // FILTERNET: a clear message instead of the old, confusing "Select a config".
+            toastError(R.string.fn_no_server_msg)
             return
         }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.CINNAMON_BUN

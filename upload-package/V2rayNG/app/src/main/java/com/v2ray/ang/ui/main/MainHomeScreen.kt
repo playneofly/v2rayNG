@@ -113,6 +113,8 @@ internal fun MainHomeScreen(
     displayText: String,
     isRunning: Boolean,
     isFindingBest: Boolean,
+    hasAnyServer: Boolean,
+    onNoServer: () -> Unit,
     onToggleService: () -> Unit,
     onFindBest: () -> Unit,
     onCancelFindBest: () -> Unit,
@@ -176,6 +178,12 @@ internal fun MainHomeScreen(
             uptimeSeconds = uptimeSeconds,
             trafficIntensity = (speed.down / 2_000_000f).coerceIn(0f, 1f),
             onClick = {
+                // FILTERNET: without this the button looked completely dead when the
+                // user had not imported any server yet.
+                if (!hasAnyServer) {
+                    onNoServer()
+                    return@PowerOrb
+                }
                 pendingConnection = !isRunning
                 onToggleService()
                 if (!isRunning) {
@@ -201,7 +209,7 @@ internal fun MainHomeScreen(
 
         Spacer(Modifier.height(8.dp))
 
-        SmartConnectButton(onClick = onFindBest)
+        SmartConnectButton(onClick = { if (hasAnyServer) onFindBest() else onNoServer() })
 
         Spacer(Modifier.height(12.dp))
 

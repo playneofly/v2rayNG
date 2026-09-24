@@ -1,5 +1,7 @@
 package com.v2ray.ang.ui.main
 
+import androidx.compose.material3.Button
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -75,6 +77,7 @@ import kotlin.math.abs
 
 @Composable
 fun GroupPagerPage(
+    onAddServer: () -> Unit = {},
     groupId: String,
     mainViewModel: MainViewModel,
     selectedGuid: String?,
@@ -98,6 +101,7 @@ fun GroupPagerPage(
     }
 
     ServerListPage(
+        onAddServer = onAddServer,
         rows = groupState.rows,
         selectedGuid = selectedGuid,
         locateTarget = locateTarget?.takeIf { it.groupId == groupId },
@@ -122,6 +126,7 @@ private class ServerRowActions(
 
 @Composable
 private fun ServerListPage(
+    onAddServer: () -> Unit,
     rows: List<ServerRowUiModel>,
     selectedGuid: String?,
     locateTarget: LocateTarget?,
@@ -136,7 +141,7 @@ private fun ServerListPage(
     contentPadding: PaddingValues,
 ) {
     if (rows.isEmpty()) {
-        EmptyServerState()
+        EmptyServerState(onAddServer = onAddServer)
         return
     }
 
@@ -224,18 +229,24 @@ private fun ServerListPage(
 }
 
 @Composable
-private fun EmptyServerState() {
+private fun EmptyServerState(onAddServer: () -> Unit) {
     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
             Surface(
-                modifier = Modifier.size(92.dp),
+                modifier = Modifier
+                    .size(92.dp)
+                    .clickable(onClick = onAddServer),
                 shape = CircleShape,
                 color = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f),
+                border = BorderStroke(
+                    1.dp,
+                    MaterialTheme.colorScheme.primary.copy(alpha = 0.35f),
+                ),
             ) {
                 Box(contentAlignment = Alignment.Center) {
                     Icon(
                         painter = painterResource(R.drawable.ic_add_24dp),
-                        contentDescription = null,
+                        contentDescription = stringResource(R.string.fn_add_server),
                         tint = MaterialTheme.colorScheme.primary,
                         modifier = Modifier.size(38.dp),
                     )
@@ -243,15 +254,28 @@ private fun EmptyServerState() {
             }
             Spacer(Modifier.height(16.dp))
             Text(
-                text = stringResource(R.string.toast_none_data),
+                text = stringResource(R.string.fn_no_server_title),
                 style = MaterialTheme.typography.titleSmall,
                 fontWeight = FontWeight.Bold,
             )
+            Spacer(Modifier.height(4.dp))
             Text(
-                text = stringResource(R.string.menu_item_import_config_qrcode),
+                text = stringResource(R.string.fn_no_server_msg),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.padding(horizontal = 40.dp),
             )
+            Spacer(Modifier.height(18.dp))
+            Button(onClick = onAddServer, shape = CircleShape) {
+                Icon(
+                    painter = painterResource(R.drawable.ic_add_24dp),
+                    contentDescription = null,
+                    modifier = Modifier.size(18.dp),
+                )
+                Spacer(Modifier.width(8.dp))
+                Text(stringResource(R.string.fn_add_server), fontWeight = FontWeight.Bold)
+            }
         }
     }
 }

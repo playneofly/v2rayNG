@@ -329,45 +329,42 @@ internal fun MainSettingsHub(onNavigate: (MainDestination) -> Unit) {
     ) {
         SettingsSection(
             title = stringResource(R.string.title_settings),
-            destinations = listOf(
-                MainDestination.Settings,
-                MainDestination.Subscriptions,
-                MainDestination.PerAppProxy,
-                MainDestination.Routing,
+            entries = listOf(
+                MainDestination.Settings to R.string.fn_settings_general_sub,
+                MainDestination.Subscriptions to R.string.fn_settings_subs_sub,
+                MainDestination.PerAppProxy to R.string.fn_settings_perapp_sub,
+                MainDestination.Routing to R.string.fn_settings_routing_sub,
             ),
             onNavigate = onNavigate,
         )
         SettingsSection(
             title = stringResource(R.string.title_advanced),
-            destinations = listOf(
-                MainDestination.UserAssets,
-                MainDestination.BackupRestore,
-                MainDestination.Logcat,
-                MainDestination.CheckUpdate,
-                MainDestination.About,
+            entries = listOf(
+                MainDestination.UserAssets to R.string.fn_settings_assets_sub,
+                MainDestination.BackupRestore to R.string.fn_settings_backup_sub,
+                MainDestination.Logcat to R.string.fn_settings_logcat_sub,
+                MainDestination.CheckUpdate to R.string.fn_settings_update_sub,
+                MainDestination.About to R.string.fn_settings_about_sub,
             ),
             onNavigate = onNavigate,
         )
-        Surface(
-            color = Color.Transparent,
-            modifier = Modifier.fillMaxWidth(),
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(20.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
         ) {
-            Column(
-                modifier = Modifier.padding(20.dp),
-                horizontalAlignment = Alignment.CenterHorizontally,
-            ) {
-                Text(
-                    text = stringResource(R.string.app_name),
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.ExtraBold,
-                    color = MaterialTheme.colorScheme.primary,
-                )
-                Text(
-                    text = stringResource(R.string.title_about),
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
+            Text(
+                text = stringResource(R.string.app_name),
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.ExtraBold,
+                color = MaterialTheme.colorScheme.primary,
+            )
+            Text(
+                text = "v" + com.v2ray.ang.BuildConfig.VERSION_NAME,
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
         }
     }
 }
@@ -375,15 +372,16 @@ internal fun MainSettingsHub(onNavigate: (MainDestination) -> Unit) {
 @Composable
 private fun SettingsSection(
     title: String,
-    destinations: List<MainDestination>,
+    entries: List<Pair<MainDestination, Int>>,
     onNavigate: (MainDestination) -> Unit,
 ) {
     Column {
         Text(
             text = title,
             style = MaterialTheme.typography.labelMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.padding(start = 4.dp, bottom = 7.dp),
+            fontWeight = FontWeight.Bold,
+            color = MaterialTheme.colorScheme.primary,
+            modifier = Modifier.padding(start = 6.dp, bottom = 7.dp),
         )
         Surface(
             modifier = Modifier.fillMaxWidth(),
@@ -392,7 +390,8 @@ private fun SettingsSection(
             border = FilternetGlassBorder,
         ) {
             Column {
-                destinations.forEachIndexed { index, destination ->
+                entries.forEachIndexed { index, entry ->
+                    val destination = entry.first
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -415,25 +414,39 @@ private fun SettingsSection(
                             }
                         }
                         Spacer(Modifier.width(12.dp))
+                        Column(Modifier.weight(1f)) {
+                            Text(
+                                text = stringResource(destination.labelRes),
+                                style = MaterialTheme.typography.bodyMedium,
+                                fontWeight = FontWeight.SemiBold,
+                                color = MaterialTheme.colorScheme.onSurface,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                            Text(
+                                text = stringResource(entry.second),
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                maxLines = 2,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                        }
+                        Spacer(Modifier.width(8.dp))
                         Text(
-                            text = stringResource(destination.labelRes),
-                            style = MaterialTheme.typography.bodyMedium,
-                            fontWeight = FontWeight.SemiBold,
-                            modifier = Modifier.weight(1f),
-                        )
-                        Text(
-                            text = "‹",
+                            text = "\u203A",
                             style = MaterialTheme.typography.titleLarge,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
-                    if (index != destinations.lastIndex) {
+                    if (index != entries.lastIndex) {
                         Box(
                             Modifier
                                 .fillMaxWidth()
                                 .padding(start = 64.dp)
                                 .height(1.dp)
-                                .background(MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.24f))
+                                .background(
+                                    MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.24f)
+                                )
                         )
                     }
                 }
