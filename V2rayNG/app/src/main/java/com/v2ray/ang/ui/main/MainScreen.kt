@@ -91,6 +91,8 @@ fun MainScreen(
     // FILTERNET: "add a server with…" sheet, reachable from the empty state,
     // the servers-tab FAB and the "no server found" path on the home tab.
     var showAddServer by remember { mutableStateOf(false) }
+    // FILTERNET: the free-server pool sheet.
+    var showGiftSheet by remember { mutableStateOf(false) }
     val context = LocalContext.current
 
     val currentGroupFlow = remember(uiState.selectedGroupId, mainViewModel) {
@@ -221,6 +223,19 @@ fun MainScreen(
             onQrCode = {
                 showAddServer = false
                 onAction(MainAction.ImportQRcode)
+            },
+        )
+    }
+
+    // FILTERNET: the free-server pool.
+    if (showGiftSheet) {
+        GiftServerSheet(
+            onDismiss = { showGiftSheet = false },
+            onServersAdded = {
+                // Reload the groups so the new profiles show up straight away,
+                // and take the user to the list where they now live.
+                onAction(MainAction.RefreshGroups)
+                selectedTab = MainRootTab.Servers
             },
         )
     }
@@ -365,6 +380,7 @@ fun MainScreen(
                             onCancelFindBest = { onAction(MainAction.CancelTesting) },
                             onOpenServers = { selectedTab = MainRootTab.Servers },
                             onTestCurrent = { onAction(MainAction.TestCurrentServer) },
+                            onGetFreeServers = { showGiftSheet = true },
                         )
 
                         MainRootTab.Servers -> {

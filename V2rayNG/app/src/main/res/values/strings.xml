@@ -615,4 +615,16 @@
     <string name="fn_crash_copy">Copy the error</string>
     <string name="fn_no_server_selected">No server selected</string>
     <string name="fn_status_connected">Connected</string>
+    <string name="fn_gift_cta">No servers? Tap here</string>
+    <string name="fn_gift_title">No servers?</string>
+    <string name="fn_gift_desc">Tap the button below and FILTERNET will search the free server pool for you and add the fastest ones to your list.</string>
+    <string name="fn_gift_button">Get servers</string>
+    <string name="fn_gift_downloading">Fetching the list…</string>
+    <string name="fn_gift_scanning">Scanning servers… %1$s checked, %2$s found</string>
+    <string name="fn_gift_done">%1$s servers were added</string>
+    <string name="fn_gift_fail_network">Could not reach the server pool. Check your internet connection and try again.</string>
+    <string name="fn_gift_fail_empty">The server pool is empty right now. Please try again later.</string>
+    <string name="fn_gift_fail_none">No fast enough server was found. Please try again later.</string>
+    <string name="fn_gift_replace_note">Getting servers again replaces the current free servers with new ones. Your own servers are never touched.</string>
+    <string name="fn_gift_badge">FILTERNET server</string>
 </resources>

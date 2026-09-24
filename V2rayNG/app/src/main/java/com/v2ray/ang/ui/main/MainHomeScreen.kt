@@ -121,6 +121,7 @@ internal fun MainHomeScreen(
     onCancelFindBest: () -> Unit,
     onOpenServers: () -> Unit,
     onTestCurrent: () -> Unit,
+    onGetFreeServers: () -> Unit,
 ) {
     var speed by remember { mutableStateOf(LiveSpeedStore.Sample(0L, 0L, emptyList(), 0L)) }
     var pendingConnection by remember { mutableStateOf(false) }
@@ -212,6 +213,11 @@ internal fun MainHomeScreen(
             statusText = displayText,
             onStatusClick = onTestCurrent,
         )
+
+        Spacer(Modifier.height(12.dp))
+
+        // FILTERNET: free-server pool entry point.
+        GiftServerCallToAction(onClick = onGetFreeServers)
 
         Spacer(Modifier.height(12.dp))
     }

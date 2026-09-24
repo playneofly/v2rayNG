@@ -430,12 +430,16 @@ private fun ServerCard(
                     )
                 }
 
-                IconButton(onClick = { actions.more(row.guid, row.profile) }) {
-                    Icon(
-                        painter = painterResource(R.drawable.ic_more_vert_24dp),
-                        contentDescription = stringResource(R.string.acc_more),
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
+                // FILTERNET: servers handed out by the app have no overflow menu,
+                // so they cannot be copied, shared, exported or shown as a QR code.
+                if (!row.isGiftServer) {
+                    IconButton(onClick = { actions.more(row.guid, row.profile) }) {
+                        Icon(
+                            painter = painterResource(R.drawable.ic_more_vert_24dp),
+                            contentDescription = stringResource(R.string.acc_more),
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
                 }
             }
         }

@@ -615,4 +615,16 @@
     <string name="fn_crash_copy">کپی خطا</string>
     <string name="fn_no_server_selected">سروری انتخاب نشده</string>
     <string name="fn_status_connected">متصل</string>
+    <string name="fn_gift_cta">سرور نداری؟ کلیک کن</string>
+    <string name="fn_gift_title">سرور نداری؟</string>
+    <string name="fn_gift_desc">روی دکمه‌ی زیر بزن تا FILTERNET از مخزن سرورهای رایگان برایت جست‌وجو کند و سریع‌ترین‌ها را به لیستت اضافه کند.</string>
+    <string name="fn_gift_button">دریافت سرور</string>
+    <string name="fn_gift_downloading">در حال گرفتن لیست…</string>
+    <string name="fn_gift_scanning">در حال اسکن سرورها… %1$s بررسی شد، %2$s پیدا شد</string>
+    <string name="fn_gift_done">%1$s سرور اضافه شد</string>
+    <string name="fn_gift_fail_network">دسترسی به مخزن سرورها ممکن نشد. اتصال اینترنتت را بررسی کن و دوباره تلاش کن.</string>
+    <string name="fn_gift_fail_empty">مخزن سرورها الان خالی است. کمی بعد دوباره تلاش کن.</string>
+    <string name="fn_gift_fail_none">سرور به‌اندازه‌ی کافی سریع پیدا نشد. کمی بعد دوباره تلاش کن.</string>
+    <string name="fn_gift_replace_note">اگر دوباره سرور بگیری، سرورهای رایگان فعلی حذف و سرورهای جدید جایگزین می‌شوند. سرورهای خودت دست‌نخورده می‌مانند.</string>
+    <string name="fn_gift_badge">سرور FILTERNET</string>
 </resources>

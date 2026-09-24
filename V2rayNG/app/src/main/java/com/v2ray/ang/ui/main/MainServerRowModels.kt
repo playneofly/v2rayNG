@@ -6,6 +6,7 @@ import com.v2ray.ang.enums.EConfigType
 import com.v2ray.ang.extension.isComplexType
 import com.v2ray.ang.extension.nullIfBlank
 import com.v2ray.ang.handler.AngConfigManager
+import com.v2ray.ang.handler.GiftServerManager
 
 internal data class ServerRowUiModel(
     val guid: String,
@@ -17,6 +18,12 @@ internal data class ServerRowUiModel(
     val configType: EConfigType,
     val testDelayMillis: Long,
     val subscriptionBadge: String,
+    /**
+     * FILTERNET: true for a profile handed out by the app itself. Those rows hide
+     * their overflow menu, so they cannot be copied, shared or turned into a QR
+     * code - only the name is visible and they only work inside FILTERNET.
+     */
+    val isGiftServer: Boolean = false,
 )
 
 internal data class ServerGroupUiState(
@@ -39,6 +46,7 @@ internal fun buildServerRowUiModel(
         configType = profile.configType,
         testDelayMillis = server.testDelayMillis,
         subscriptionBadge = subscriptionRemarks.firstOrNull()?.toString().orEmpty(),
+        isGiftServer = profile.subscriptionId == GiftServerManager.GIFT_SUB_ID,
     )
 }
 

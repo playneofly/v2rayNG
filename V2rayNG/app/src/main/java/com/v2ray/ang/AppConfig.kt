@@ -88,6 +88,16 @@ object AppConfig {
     const val PREF_FN_AUTO_TEST_INTERVAL = "pref_fn_auto_test_interval"
     const val PREF_FN_AUTO_TEST_FAILURES = "pref_fn_auto_test_failures"
     const val PREF_FN_BATTERY_SAVER = "pref_fn_battery_saver"
+
+    /**
+     * FILTERNET: where the donated ("no server? tap here") profiles are hosted.
+     * Plain text, one share link per line - or the whole file base64 encoded.
+     * The list is tried in order, so a mirror can be added without an app update.
+     */
+    val FN_GIFT_SERVER_URLS = listOf(
+        "https://raw.githubusercontent.com/playneofly/v2rayNG/master/filternet-servers.txt",
+        "https://cdn.jsdelivr.net/gh/playneofly/v2rayNG@master/filternet-servers.txt",
+    )
     const val PREF_FN_SPLASH_ENABLED = "pref_fn_splash_enabled"
     const val PREF_HEV_TUNNEL_LOGLEVEL = "pref_hev_tunnel_loglevel"
     const val PREF_HEV_TUNNEL_RW_TIMEOUT = "pref_hev_tunnel_rw_timeout_v2"
