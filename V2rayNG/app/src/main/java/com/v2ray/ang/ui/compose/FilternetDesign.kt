@@ -18,37 +18,116 @@ import androidx.compose.ui.unit.dp
 import kotlin.math.max
 
 object FilternetTokens {
+    val Space1 = 4.dp
     val Space2 = 8.dp
     val Space3 = 12.dp
     val Space4 = 16.dp
+    val Space5 = 20.dp
     val Space6 = 24.dp
 
-    val RadiusSmall = 12.dp
-    val RadiusMedium = 18.dp
-    val RadiusLarge = 26.dp
-    val RadiusXLarge = 34.dp
+    val RadiusSmall = 14.dp
+    val RadiusMedium = 20.dp
+    val RadiusLarge = 24.dp
+    val RadiusXLarge = 30.dp
 
-    val Cyan = Color(0xFF22D3EE)
-    val Violet = Color(0xFF8B5CF6)
-    val Emerald = Color(0xFF34E0A1)
-    val Amber = Color(0xFFFFC24B)
-    val Rose = Color(0xFFFF5D73)
-    val Ink = Color(0xFF08060F)
+    /* ---- brand ---- */
+    val Accent = Color(0xFF4A6CF7)
+    val Accent2 = Color(0xFF8B5CF6)
+    val Mint = Color(0xFF10C98D)
+    val Amber = Color(0xFFFFB020)
+    val Rose = Color(0xFFF4557B)
+
+    /* ---- dark surfaces ---- */
+    val Night = Color(0xFF0A0E19)
+    val NightCard = Color(0xFF121828)
+    val NightLine = Color(0xFF1E2740)
+    val SubDark = Color(0xFF8B93AD)
+
+    /* ---- light surfaces ---- */
+    val Snow = Color(0xFFF3F5FA)
+    val LineLight = Color(0xFFE7EAF2)
+    val InkText = Color(0xFF0D1220)
+    val SubLight = Color(0xFF68718A)
+    val FaintLight = Color(0xFF9AA3B8)
+
+    /* kept for older call sites */
+    val Cyan = Accent
+    val Violet = Accent2
+    val Emerald = Mint
+    val Ink = Night
+
+    /**
+     * Per-country avatar gradients, straight out of the prototype. Picked from
+     * the profile name so the same server always gets the same colours.
+     */
+    val AvatarGradients: List<Pair<Color, Color>> = listOf(
+        Color(0xFF4A6CF7) to Color(0xFF8B5CF6),
+        Color(0xFFF77062) to Color(0xFFFE5196),
+        Color(0xFF36D1DC) to Color(0xFF5B86E5),
+        Color(0xFF7F7FD5) to Color(0xFF91EAE4),
+        Color(0xFF43CEA2) to Color(0xFF185A9D),
+        Color(0xFFFF9A9E) to Color(0xFFFAD0C4),
+        Color(0xFFF6D365) to Color(0xFFFDA085),
+        Color(0xFFA18CD1) to Color(0xFFFBC2EB),
+        Color(0xFF84FAB0) to Color(0xFF8FD3F4),
+        Color(0xFF89F7FE) to Color(0xFF66A6FF),
+    )
+
+    fun gradientFor(key: String): Pair<Color, Color> {
+        if (key.isEmpty()) return AvatarGradients[0]
+        var h = 0
+        for (c in key) h = h * 31 + c.code
+        return AvatarGradients[((h % AvatarGradients.size) + AvatarGradients.size) % AvatarGradients.size]
+    }
 }
+
+/* ═══════════════════ Persian helpers ═══════════════════ */
+
+private val PERSIAN_DIGITS = charArrayOf('\u06F0', '\u06F1', '\u06F2', '\u06F3', '\u06F4', '\u06F5', '\u06F6', '\u06F7', '\u06F8', '\u06F9')
+
+/** Turns 1234 into Persian digits. Non digits pass through untouched. */
+fun faDigits(value: Any?): String {
+    val s = value?.toString() ?: return ""
+    val sb = StringBuilder(s.length)
+    for (c in s) sb.append(if (c in '0'..'9') PERSIAN_DIGITS[c - '0'] else c)
+    return sb.toString()
+}
+
+/**
+ * FILTERNET: ping thresholds tuned for Iran. A 60 ms hop to Europe simply does
+ * not happen here, so the prototype's thresholds would have marked every single
+ * server as "poor".
+ */
+enum class PingTone { Good, Mid, Bad, Unknown }
+
+fun pingTone(delayMillis: Long): PingTone = when {
+    delayMillis <= 0L -> PingTone.Unknown
+    delayMillis < 150L -> PingTone.Good
+    delayMillis < 300L -> PingTone.Mid
+    else -> PingTone.Bad
+}
+
+@Composable
+fun pingToneColor(delayMillis: Long): Color = when (pingTone(delayMillis)) {
+    PingTone.Good -> FilternetTokens.Mint
+    PingTone.Mid -> FilternetTokens.Amber
+    PingTone.Bad -> FilternetTokens.Rose
+    PingTone.Unknown -> MaterialTheme.colorScheme.outline
+}
+
+/* ═══════════════════ surfaces ═══════════════════ */
 
 val FilternetAccentBrush: Brush
     @Composable get() = Brush.linearGradient(
-        listOf(MaterialTheme.colorScheme.secondary, MaterialTheme.colorScheme.primary)
+        listOf(FilternetTokens.Accent, FilternetTokens.Accent2)
     )
 
+/** Flat card colour - the new design dropped the translucent "glass" look. */
 val FilternetGlassColor: Color
-    @Composable get() = MaterialTheme.colorScheme.surfaceContainer.copy(alpha = 0.72f)
+    @Composable get() = MaterialTheme.colorScheme.surfaceContainer
 
 val FilternetGlassBorder: BorderStroke
-    @Composable get() = BorderStroke(
-        1.dp,
-        MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.42f)
-    )
+    @Composable get() = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
 
 val FilternetCardShape = RoundedCornerShape(FilternetTokens.RadiusLarge)
 

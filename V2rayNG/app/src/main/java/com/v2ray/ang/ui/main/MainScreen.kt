@@ -1,5 +1,9 @@
 package com.v2ray.ang.ui.main
 
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.text.withStyle
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
 import com.v2ray.ang.handler.MmkvManager
 import androidx.compose.ui.text.style.TextOverflow
 import android.widget.Toast
@@ -391,6 +395,18 @@ fun MainScreen(
                             }
                             if (groups.isNotEmpty()) {
                                 Column(Modifier.fillMaxSize()) {
+                                    // FILTERNET: new design header - title, count,
+                                    // search field and the smart-connect card.
+                                    ServersHeader(
+                                        serverCount = currentGroup.rows.size,
+                                        bestPing = currentGroup.rows
+                                            .map { it.testDelayMillis }
+                                            .filter { it > 0L }
+                                            .minOrNull(),
+                                        query = searchQuery,
+                                        onQueryChange = { searchQuery = it },
+                                        onSmartConnect = { onAction(MainAction.ConnectBestServer) },
+                                    )
                                     if (groups.size > 1) {
                                         GroupTabBar(
                                             groups = groups,
@@ -464,28 +480,34 @@ private fun MainBrandTopBar(
     Column {
         TopAppBar(
             title = {
-                Column {
-                    Text(
-                        text = stringResource(tab.labelRes),
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.ExtraBold,
-                        color = if (tab == MainRootTab.Home) MaterialTheme.colorScheme.primary
-                        else MaterialTheme.colorScheme.onSurface,
-                    )
-                    if (tab == MainRootTab.Home) {
-                        val prefix = stringResource(
-                            if (isRunning) R.string.fn_connected_to
-                            else R.string.fn_not_connected
+                // FILTERNET: on the home tab the brand wordmark is the title, with
+                // "NET" in the accent gradient, exactly like the new design. The
+                // other tabs draw their own big heading, so the bar stays empty.
+                if (tab == MainRootTab.Home) {
+                    Column {
+                        Text(
+                            text = buildAnnotatedString {
+                                withStyle(
+                                    SpanStyle(color = MaterialTheme.colorScheme.onSurface)
+                                ) { append("FILTER") }
+                                withStyle(
+                                    SpanStyle(
+                                        brush = Brush.linearGradient(
+                                            listOf(FilternetTokens.Accent, FilternetTokens.Accent2)
+                                        )
+                                    )
+                                ) { append("NET") }
+                            },
+                            style = MaterialTheme.typography.titleLarge,
                         )
                         Text(
-                            text = if (!serverName.isNullOrBlank()) "$prefix · $serverName"
-                            else prefix,
+                            text = if (!serverName.isNullOrBlank() && isRunning) serverName
+                            else stringResource(R.string.fn_brand_tagline),
                             style = MaterialTheme.typography.labelSmall,
-                            fontWeight = FontWeight.SemiBold,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
-                            color = if (isRunning) FilternetTokens.Emerald
-                            else MaterialTheme.colorScheme.onSurfaceVariant,
+                            color = if (isRunning) FilternetTokens.Mint
+                            else MaterialTheme.colorScheme.outline,
                         )
                     }
                 }
@@ -544,6 +566,7 @@ private fun NoGroupEmptyState(onAddServer: () -> Unit) {
                     .clickable(onClick = onAddServer),
                 shape = CircleShape,
                 color = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f),
+                contentColor = MaterialTheme.colorScheme.onSurface,
             ) {
                 Box(contentAlignment = Alignment.Center) {
                     Icon(

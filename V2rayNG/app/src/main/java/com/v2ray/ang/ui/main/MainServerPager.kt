@@ -1,5 +1,9 @@
 package com.v2ray.ang.ui.main
 
+import com.v2ray.ang.ui.compose.pingToneColor
+import com.v2ray.ang.ui.compose.faDigits
+import com.v2ray.ang.ui.compose.FilternetTokens
+import androidx.compose.ui.draw.clip
 import androidx.compose.material3.Button
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.foundation.BorderStroke
@@ -238,6 +242,7 @@ private fun EmptyServerState(onAddServer: () -> Unit) {
                     .clickable(onClick = onAddServer),
                 shape = CircleShape,
                 color = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f),
+                contentColor = MaterialTheme.colorScheme.onSurface,
                 border = BorderStroke(
                     1.dp,
                     MaterialTheme.colorScheme.primary.copy(alpha = 0.35f),
@@ -303,6 +308,7 @@ private fun ServerCard(
             .clickable(role = Role.RadioButton) { actions.select(row.guid) },
         color = if (isSelected) MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)
         else FilternetGlassColor,
+        contentColor = MaterialTheme.colorScheme.onSurface,
         shape = RoundedCornerShape(22.dp),
         border = if (isSelected) {
             BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.58f))
@@ -328,21 +334,25 @@ private fun ServerCard(
                 ),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Surface(
-                    modifier = Modifier.size(if (compact) 38.dp else 46.dp),
-                    shape = CircleShape,
-                    color = MaterialTheme.colorScheme.surfaceContainerHigh,
-                    border = BorderStroke(
-                        1.dp,
-                        MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f),
-                    ),
+                // FILTERNET: gradient avatar from the new design. Deterministic,
+                // so a server always keeps the same colours.
+                val avatar = remember(row.remarks) { FilternetTokens.gradientFor(row.remarks) }
+                Box(
+                    modifier = Modifier
+                        .size(if (compact) 38.dp else 44.dp)
+                        .clip(RoundedCornerShape(14.dp))
+                        .background(
+                            androidx.compose.ui.graphics.Brush.linearGradient(
+                                listOf(avatar.first, avatar.second)
+                            )
+                        ),
+                    contentAlignment = Alignment.Center,
                 ) {
-                    Box(contentAlignment = Alignment.Center) {
-                        Text(
-                            text = countryFlagFor(row.remarks),
-                            fontSize = if (compact) 18.sp else 22.sp,
-                        )
-                    }
+                    Text(
+                        text = serverBadgeText(row.remarks),
+                        style = MaterialTheme.typography.labelMedium,
+                        color = androidx.compose.ui.graphics.Color.White,
+                    )
                 }
 
                 Spacer(Modifier.width(if (compact) 8.dp else 12.dp))
@@ -362,6 +372,7 @@ private fun ServerCard(
                                 modifier = Modifier.size(17.dp),
                                 shape = CircleShape,
                                 color = MaterialTheme.colorScheme.primary,
+                                contentColor = MaterialTheme.colorScheme.onPrimary,
                             ) {
                                 Box(contentAlignment = Alignment.Center) {
                                     Icon(
@@ -416,18 +427,23 @@ private fun ServerCard(
                     Spacer(Modifier.height(4.dp))
                     Text(
                         text = when {
-                            row.testDelayMillis > 0L -> stringResource(
-                                R.string.server_test_delay_value,
-                                row.testDelayMillis,
-                            )
+                            row.testDelayMillis > 0L -> faDigits(row.testDelayMillis)
                             row.testDelayMillis < 0L -> stringResource(R.string.toast_failure)
-                            else -> "--"
+                            else -> "—"
                         },
-                        style = MaterialTheme.typography.labelSmall,
-                        color = delayColor,
-                        fontWeight = FontWeight.Bold,
+                        style = MaterialTheme.typography.labelMedium,
+                        color = pingToneColor(row.testDelayMillis),
                         maxLines = 1,
                     )
+                    if (row.testDelayMillis > 0L) {
+                        Text(
+                            text = stringResource(R.string.fn_ms),
+                            style = MaterialTheme.typography.labelSmall,
+                            fontSize = 8.sp,
+                            color = MaterialTheme.colorScheme.outline,
+                            maxLines = 1,
+                        )
+                    }
                 }
 
                 // FILTERNET: servers handed out by the app have no overflow menu,
@@ -452,6 +468,7 @@ private fun ServerInfoChip(text: String, color: androidx.compose.ui.graphics.Col
     Surface(
         shape = CircleShape,
         color = color.copy(alpha = 0.11f),
+        contentColor = MaterialTheme.colorScheme.onSurface,
         border = BorderStroke(1.dp, color.copy(alpha = 0.28f)),
     ) {
         Text(
@@ -521,4 +538,13 @@ internal suspend fun PagerState.navigateToPageOptimized(
     } else {
         scrollToPage(target)
     }
+}
+
+/** FILTERNET: two-character badge for the gradient avatar. */
+private fun serverBadgeText(name: String): String {
+    val cleaned = name.trim()
+    if (cleaned.isEmpty()) return "?"
+    val latin = cleaned.filter { it in 'a'..'z' || it in 'A'..'Z' }
+    if (latin.length >= 2) return latin.take(2).uppercase()
+    return cleaned.take(2)
 }

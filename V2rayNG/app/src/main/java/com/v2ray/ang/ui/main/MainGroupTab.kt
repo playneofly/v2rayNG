@@ -111,6 +111,8 @@ private fun GroupChip(
             Surface(
                 color = if (selected) MaterialTheme.colorScheme.primary.copy(alpha = 0.2f)
                 else MaterialTheme.colorScheme.surfaceContainerHighest,
+                contentColor = if (selected) MaterialTheme.colorScheme.primary
+                else MaterialTheme.colorScheme.onSurfaceVariant,
                 shape = CircleShape,
             ) {
                 Text(

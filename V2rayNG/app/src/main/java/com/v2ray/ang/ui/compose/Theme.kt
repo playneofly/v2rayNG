@@ -31,108 +31,118 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 
+/* ═══════════════════════════════════════════════════════════════════════════
+   FILTERNET design system - colours taken 1:1 from the new prototype.
+
+   accent  #4A6CF7   accent2 #8B5CF6   mint #10C98D
+   amber   #FFB020   rose    #F4557B
+
+   light: snow #F3F5FA / card #FFFFFF / line #E7EAF2 / ink #0D1220
+   dark : night #0A0E19 / card #121828 / line #1E2740 / sub #8B93AD
+   ═══════════════════════════════════════════════════════════════════════════ */
+
 private val LightColor = lightColorScheme(
-    primary = Color(0xFF6D3BE8),
+    primary = FilternetTokens.Accent,
     onPrimary = Color.White,
-    primaryContainer = Color(0xFFE9DDFF),
-    onPrimaryContainer = Color(0xFF250067),
-    secondary = Color(0xFF007C91),
+    primaryContainer = Color(0xFFDDE4FE),
+    onPrimaryContainer = Color(0xFF0A1B54),
+    secondary = FilternetTokens.Accent2,
     onSecondary = Color.White,
-    secondaryContainer = Color(0xFFB8EAFA),
-    onSecondaryContainer = Color(0xFF001F26),
-    tertiary = Color(0xFF006B55),
+    secondaryContainer = Color(0xFFE7DEFE),
+    onSecondaryContainer = Color(0xFF241155),
+    tertiary = FilternetTokens.Mint,
     onTertiary = Color.White,
-    tertiaryContainer = Color(0xFF8EF8D3),
-    onTertiaryContainer = Color(0xFF002018),
-    error = Color(0xFFBA1A1A),
-    errorContainer = Color(0xFFFFDAD6),
+    tertiaryContainer = Color(0xFFC7F3E4),
+    onTertiaryContainer = Color(0xFF00382A),
+    error = FilternetTokens.Rose,
     onError = Color.White,
-    onErrorContainer = Color(0xFF410002),
-    background = Color(0xFFF9F7FF),
-    onBackground = Color(0xFF1C1A22),
-    surface = Color(0xFFF9F7FF),
-    onSurface = Color(0xFF1C1A22),
-    surfaceVariant = Color(0xFFE8E0EE),
-    onSurfaceVariant = Color(0xFF4A454F),
-    outline = Color(0xFF7B757F),
-    outlineVariant = Color(0xFFCCC4D0),
-    inverseSurface = Color(0xFF312F36),
-    inverseOnSurface = Color(0xFFF4EFF8),
-    inversePrimary = Color(0xFFCFBCFF),
+    errorContainer = Color(0xFFFFDBE2),
+    onErrorContainer = Color(0xFF5B0018),
+    background = FilternetTokens.Snow,
+    onBackground = FilternetTokens.InkText,
+    surface = FilternetTokens.Snow,
+    onSurface = FilternetTokens.InkText,
+    surfaceVariant = Color(0xFFE7EAF2),
+    onSurfaceVariant = FilternetTokens.SubLight,
+    outline = FilternetTokens.FaintLight,
+    outlineVariant = FilternetTokens.LineLight,
+    inverseSurface = FilternetTokens.InkText,
+    inverseOnSurface = Color(0xFFF3F5FA),
+    inversePrimary = Color(0xFF9DB1FB),
     scrim = Color.Black,
-    surfaceTint = Color(0xFF6D3BE8),
+    surfaceTint = FilternetTokens.Accent,
     surfaceContainerLowest = Color.White,
-    surfaceContainerLow = Color(0xFFF3F0FA),
-    surfaceContainer = Color(0xFFEDEAF4),
-    surfaceContainerHigh = Color(0xFFE7E4EE),
-    surfaceContainerHighest = Color(0xFFE1DEE8),
+    surfaceContainerLow = Color(0xFFFFFFFF),
+    surfaceContainer = Color(0xFFFFFFFF),
+    surfaceContainerHigh = Color(0xFFFAFBFE),
+    surfaceContainerHighest = Color(0xFFEEF1F7),
 )
 
 private val DarkColor = darkColorScheme(
-    primary = Color(0xFFB99AFF),
-    onPrimary = Color(0xFF24005D),
-    primaryContainer = Color(0xFF4B1EA7),
-    onPrimaryContainer = Color(0xFFEADDFF),
-    secondary = FilternetTokens.Cyan,
-    onSecondary = Color(0xFF003640),
-    secondaryContainer = Color(0xFF004E5C),
-    onSecondaryContainer = Color(0xFFA6EEFF),
-    tertiary = FilternetTokens.Emerald,
-    onTertiary = Color(0xFF003829),
-    tertiaryContainer = Color(0xFF00513D),
-    onTertiaryContainer = Color(0xFF84F8CC),
-    error = Color(0xFFFFB3BA),
-    errorContainer = Color(0xFF930019),
-    onError = Color(0xFF67000E),
-    onErrorContainer = Color(0xFFFFDADF),
-    background = FilternetTokens.Ink,
-    onBackground = Color(0xFFF3EFFB),
-    surface = FilternetTokens.Ink,
-    onSurface = Color(0xFFF3EFFB),
-    surfaceVariant = Color(0xFF494351),
-    onSurfaceVariant = Color(0xFFCCC4D1),
-    outline = Color(0xFF958E9C),
-    outlineVariant = Color(0xFF494351),
-    inverseSurface = Color(0xFFF3EFFB),
-    inverseOnSurface = Color(0xFF302D35),
-    inversePrimary = Color(0xFF6D3BE8),
+    primary = Color(0xFF7D97FA),
+    onPrimary = Color(0xFF041038),
+    primaryContainer = Color(0xFF1F3080),
+    onPrimaryContainer = Color(0xFFDDE4FE),
+    secondary = Color(0xFFA989FF),
+    onSecondary = Color(0xFF1B0B45),
+    secondaryContainer = Color(0xFF3A2A6B),
+    onSecondaryContainer = Color(0xFFE7DEFE),
+    tertiary = FilternetTokens.Mint,
+    onTertiary = Color(0xFF00281D),
+    tertiaryContainer = Color(0xFF0A4F3B),
+    onTertiaryContainer = Color(0xFFC7F3E4),
+    error = FilternetTokens.Rose,
+    onError = Color(0xFF3F0011),
+    errorContainer = Color(0xFF7A1130),
+    onErrorContainer = Color(0xFFFFDBE2),
+    background = FilternetTokens.Night,
+    onBackground = Color(0xFFF2F5FC),
+    surface = FilternetTokens.Night,
+    onSurface = Color(0xFFF2F5FC),
+    surfaceVariant = FilternetTokens.NightLine,
+    onSurfaceVariant = FilternetTokens.SubDark,
+    outline = Color(0xFF6C7590),
+    outlineVariant = FilternetTokens.NightLine,
+    inverseSurface = Color(0xFFF2F5FC),
+    inverseOnSurface = FilternetTokens.Night,
+    inversePrimary = FilternetTokens.Accent,
     scrim = Color.Black,
-    surfaceTint = Color(0xFFB99AFF),
-    surfaceContainerLowest = Color(0xFF050309),
-    surfaceContainerLow = Color(0xFF100D17),
-    surfaceContainer = Color(0xFF15111E),
-    surfaceContainerHigh = Color(0xFF201A2B),
-    surfaceContainerHighest = Color(0xFF2A2336),
+    surfaceTint = Color(0xFF7D97FA),
+    surfaceContainerLowest = Color(0xFF06090F),
+    surfaceContainerLow = Color(0xFF0E1320),
+    surfaceContainer = FilternetTokens.NightCard,
+    surfaceContainerHigh = Color(0xFF161D31),
+    surfaceContainerHighest = Color(0xFF1C2439),
 )
 
 private val FilternetShapes = Shapes(
-    extraSmall = RoundedCornerShape(8.dp),
-    small = RoundedCornerShape(12.dp),
-    medium = RoundedCornerShape(18.dp),
-    large = RoundedCornerShape(26.dp),
-    extraLarge = RoundedCornerShape(34.dp),
+    extraSmall = RoundedCornerShape(10.dp),
+    small = RoundedCornerShape(14.dp),
+    medium = RoundedCornerShape(20.dp),
+    large = RoundedCornerShape(24.dp),
+    extraLarge = RoundedCornerShape(30.dp),
 )
 
-val colorPing = Color(0xFF34E0A1)
-val colorPingRed = Color(0xFFFF5D73)
-val colorConfigType = Color(0xFF22D3EE)
-val colorTypeVless = Color(0xFF7CA8FF)
-val colorTypeVmess = Color(0xFF22D3EE)
-val colorTypeTrojan = Color(0xFF34E0A1)
-val colorTypeShadowsocks = Color(0xFFFFB347)
-val colorTypeHysteria = Color(0xFFB99AFF)
-val colorTypeWireguard = Color(0xFFFF7A98)
-val colorTypeOther = Color(0xFFA39BAC)
-val colorFabActive = Color(0xFF8B5CF6)
+val colorPing = FilternetTokens.Mint
+val colorPingRed = FilternetTokens.Rose
+val colorConfigType = FilternetTokens.Accent
+val colorTypeVless = Color(0xFF4A6CF7)
+val colorTypeVmess = Color(0xFF36D1DC)
+val colorTypeTrojan = FilternetTokens.Mint
+val colorTypeShadowsocks = FilternetTokens.Amber
+val colorTypeHysteria = FilternetTokens.Accent2
+val colorTypeWireguard = FilternetTokens.Rose
+val colorTypeOther = Color(0xFF8B93AD)
+val colorFabActive = FilternetTokens.Accent
 val colorFabInactiveLight = Color(0xFF8B8491)
 val colorFabInactiveDark = Color(0xFF5F5968)
-val dividerColorLight = Color(0xFFE1DAE7)
-val dividerColorDark = Color(0xFF332D3D)
+val dividerColorLight = FilternetTokens.LineLight
+val dividerColorDark = FilternetTokens.NightLine
 
-val toastNormalBgLight = Color(0xE63A3541)
-val toastNormalBgDark = Color(0xE6231E2B)
-val toastSuccessBg = Color(0xE6007D58)
-val toastErrorBg = Color(0xE69A1831)
+val toastNormalBgLight = Color(0xEB0D1220)
+val toastNormalBgDark = Color(0xEB121828)
+val toastSuccessBg = Color(0xEB0A8F65)
+val toastErrorBg = Color(0xEBB02A4C)
 val toastInfoBg = Color(0xE64B1EA7)
 val toastIconCircleBg = Color(0x33FFFFFF)
 val toastTextColor = Color.White
@@ -215,6 +225,7 @@ fun AppTheme(
         MaterialTheme(
             colorScheme = colorScheme,
             shapes = FilternetShapes,
+            typography = FilternetTypography,
         ) {
             Box(modifier = Modifier.fillMaxSize()) {
                 AppSnackbarBridge(controller = snackbarController)

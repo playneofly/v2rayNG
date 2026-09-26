@@ -1,5 +1,6 @@
 package com.v2ray.ang.ui.main
 
+import com.v2ray.ang.ui.compose.faDigits
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
@@ -92,9 +93,24 @@ internal fun MainTrafficScreen() {
         modifier = Modifier
             .fillMaxSize()
             .verticalScroll(rememberScrollState())
-            .padding(horizontal = 16.dp, vertical = 8.dp),
+            .padding(horizontal = 16.dp)
+            .padding(top = 4.dp, bottom = 8.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
+        // FILTERNET: screen header, matching the new design.
+        Column {
+            Text(
+                text = stringResource(R.string.fn_traffic_title),
+                style = MaterialTheme.typography.headlineSmall,
+                color = MaterialTheme.colorScheme.onSurface,
+            )
+            Spacer(Modifier.height(2.dp))
+            Text(
+                text = stringResource(R.string.fn_stats_subtitle),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -140,12 +156,12 @@ internal fun MainTrafficScreen() {
                     TrafficLegend(
                         color = MaterialTheme.colorScheme.secondary,
                         label = stringResource(R.string.fn_speed_down),
-                        value = snapshot.totalDown.toTrafficString(),
+                        value = snapshot.totalDown.toTrafficString().let(::faDigits),
                     )
                     TrafficLegend(
                         color = MaterialTheme.colorScheme.primary,
                         label = stringResource(R.string.fn_speed_up),
-                        value = snapshot.totalUp.toTrafficString(),
+                        value = snapshot.totalUp.toTrafficString().let(::faDigits),
                     )
                 }
             }
@@ -214,7 +230,7 @@ private fun TrafficSummary(title: String, value: Long, modifier: Modifier = Modi
             )
             Spacer(Modifier.height(4.dp))
             Text(
-                text = value.toTrafficString(),
+                text = faDigits(value.toTrafficString()),
                 style = MaterialTheme.typography.labelLarge,
                 fontWeight = FontWeight.Bold,
                 maxLines = 1,
@@ -327,9 +343,24 @@ internal fun MainSettingsHub(onNavigate: (MainDestination) -> Unit) {
         modifier = Modifier
             .fillMaxSize()
             .verticalScroll(rememberScrollState())
-            .padding(horizontal = 16.dp, vertical = 8.dp),
+            .padding(horizontal = 16.dp)
+            .padding(top = 4.dp, bottom = 8.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
+        // FILTERNET: screen header, matching the new design.
+        Column {
+            Text(
+                text = stringResource(R.string.title_settings),
+                style = MaterialTheme.typography.headlineSmall,
+                color = MaterialTheme.colorScheme.onSurface,
+            )
+            Spacer(Modifier.height(2.dp))
+            Text(
+                text = stringResource(R.string.fn_settings_subtitle),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
         SettingsSection(
             title = stringResource(R.string.title_settings),
             entries = listOf(
@@ -382,9 +413,8 @@ private fun SettingsSection(
         Text(
             text = title,
             style = MaterialTheme.typography.labelMedium,
-            fontWeight = FontWeight.Bold,
             color = MaterialTheme.colorScheme.primary,
-            modifier = Modifier.padding(start = 6.dp, bottom = 7.dp),
+            modifier = Modifier.padding(start = 6.dp, bottom = 8.dp),
         )
         Surface(
             modifier = Modifier.fillMaxWidth(),
@@ -405,8 +435,9 @@ private fun SettingsSection(
                     ) {
                         Surface(
                             modifier = Modifier.size(38.dp),
-                            shape = CircleShape,
-                            color = MaterialTheme.colorScheme.primary.copy(alpha = 0.13f),
+                            shape = RoundedCornerShape(13.dp),
+                            color = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f),
+                            contentColor = MaterialTheme.colorScheme.onSurface,
                         ) {
                             Box(contentAlignment = Alignment.Center) {
                                 Icon(

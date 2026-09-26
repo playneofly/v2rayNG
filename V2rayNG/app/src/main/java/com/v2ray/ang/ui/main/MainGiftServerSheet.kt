@@ -92,9 +92,15 @@ internal fun GiftServerSheet(
                 modifier = Modifier.size(62.dp),
                 shape = CircleShape,
                 color = MaterialTheme.colorScheme.surfaceContainerHighest,
+                contentColor = MaterialTheme.colorScheme.onSurface,
             ) {
                 Box(contentAlignment = Alignment.Center) {
-                    Text("\uD83C\uDF81", fontSize = 28.sp)
+                    Icon(
+                        painter = painterResource(R.drawable.ic_gift_24dp),
+                        contentDescription = null,
+                        modifier = Modifier.size(26.dp),
+                        tint = FilternetTokens.Accent,
+                    )
                 }
             }
 
@@ -264,30 +270,31 @@ private fun StatusLine(
 internal fun GiftServerCallToAction(onClick: () -> Unit) {
     Surface(
         modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(18.dp),
-        color = MaterialTheme.colorScheme.surfaceContainerHigh,
-        contentColor = MaterialTheme.colorScheme.onSurface,
+        shape = RoundedCornerShape(FilternetTokens.RadiusMedium),
+        color = FilternetTokens.Accent.copy(alpha = 0.06f),
+        contentColor = FilternetTokens.Accent,
+        border = androidx.compose.foundation.BorderStroke(
+            1.dp,
+            FilternetTokens.Accent.copy(alpha = 0.32f),
+        ),
         onClick = onClick,
     ) {
         Row(
-            modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp),
+            modifier = Modifier.padding(vertical = 13.dp, horizontal = 16.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.Center,
         ) {
-            Text("\uD83C\uDF81", fontSize = 18.sp)
-            Spacer(Modifier.width(10.dp))
+            Icon(
+                painter = painterResource(R.drawable.ic_gift_24dp),
+                contentDescription = null,
+                modifier = Modifier.size(16.dp),
+                tint = FilternetTokens.Accent,
+            )
+            Spacer(Modifier.width(9.dp))
             Text(
                 text = stringResource(R.string.fn_gift_cta),
                 style = MaterialTheme.typography.titleSmall,
-                fontWeight = FontWeight.Bold,
-                color = MaterialTheme.colorScheme.onSurface,
-            )
-            Spacer(Modifier.width(8.dp))
-            Icon(
-                painter = painterResource(R.drawable.ic_arrow_back_24dp),
-                contentDescription = null,
-                modifier = Modifier.size(16.dp),
-                tint = MaterialTheme.colorScheme.primary,
+                color = FilternetTokens.Accent,
             )
         }
     }

@@ -55,16 +55,17 @@ internal fun MainNavigationBar(
         Surface(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(68.dp),
+                .height(64.dp),
             color = FilternetGlassColor,
         contentColor = MaterialTheme.colorScheme.onSurface,
-            shape = RoundedCornerShape(24.dp),
+            shape = RoundedCornerShape(26.dp),
             border = FilternetGlassBorder,
-            shadowElevation = 18.dp,
+            shadowElevation = 14.dp,
         ) {
             NavigationBar(
                 modifier = Modifier.fillMaxWidth(),
                 containerColor = Color.Transparent,
+                contentColor = MaterialTheme.colorScheme.onBackground,
                 tonalElevation = 0.dp,
             ) {
                 MainRootTab.entries.forEach { tab ->
@@ -100,11 +101,11 @@ internal fun MainNavigationBar(
                             )
                         },
                         colors = NavigationBarItemDefaults.colors(
-                            indicatorColor = Color.Transparent,
+                            indicatorColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f),
                             selectedIconColor = MaterialTheme.colorScheme.primary,
-                            selectedTextColor = MaterialTheme.colorScheme.onSurface,
-                            unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                            unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                            selectedTextColor = MaterialTheme.colorScheme.primary,
+                            unselectedIconColor = MaterialTheme.colorScheme.outline,
+                            unselectedTextColor = MaterialTheme.colorScheme.outline,
                         ),
                         modifier = Modifier.weight(1f),
                     )

@@ -195,6 +195,7 @@ fun AppSnackbarHost(
                         .widthIn(max = maxSnackbarWidth),
                     shape = RoundedCornerShape(ToastCornerRadius),
                     color = bgColor,
+                    contentColor = toastTextColor,
                     shadowElevation = 0.dp,
                 ) {
                     Row(
