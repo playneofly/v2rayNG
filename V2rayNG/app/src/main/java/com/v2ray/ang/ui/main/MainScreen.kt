@@ -213,6 +213,7 @@ fun MainScreen(
                             onToggleService = { onAction(MainAction.ToggleService) },
                             onTestCurrent = { onAction(MainAction.TestCurrentServer) },
                             onAutoConnect = { onAction(MainAction.AutoConnect) },
+                            onCancelAutoConnect = { onAction(MainAction.CancelAutoConnect) },
                         )
 
                         MainRootTab.Stats -> MainTrafficScreen()

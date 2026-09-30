@@ -111,6 +111,10 @@ class MainActivity : HelperBaseComponentActivity() {
 
         // FILTERNET: after the "Best" flow picks a server, (re)start the tunnel on it.
         mainViewModel.setOnBestServerPicked {
+            // FILTERNET: the search is finished here. Without this the pool phase
+            // stayed on "measuring" forever, which kept the button amber and
+            // disabled for the rest of the session.
+            ServerPoolManager.publishConnected()
             if (mainViewModel.uiState.value.isRunning) {
                 LauncherManager.restartService(this)
             } else {
@@ -195,6 +199,7 @@ class MainActivity : HelperBaseComponentActivity() {
                 when (action) {
                     MainAction.ToggleService -> handleFabAction()
                     MainAction.AutoConnect -> handleAutoConnect()
+                    MainAction.CancelAutoConnect -> cancelAutoConnect()
                     MainAction.TestCurrentServer -> handleLayoutTestClick()
                     MainAction.ImportQRcode -> importQRcode()
                     MainAction.ImportClipboard -> importClipboard()
@@ -296,6 +301,7 @@ class MainActivity : HelperBaseComponentActivity() {
         autoConnectJob = lifecycleScope.launch {
             val ready = ServerPoolManager.prepareCandidates(applicationContext)
             if (!ready) return@launch
+
             // Hands over to the measure-then-connect path, which ends in
             // onBestServerPicked and a single startV2Ray().
             mainViewModel.connectBestServer()
@@ -313,10 +319,22 @@ class MainActivity : HelperBaseComponentActivity() {
             LogUtil.w(AppConfig.TAG, "AutoConnect: measurement timed out")
             mainViewModel.onAction(MainAction.CancelTesting)
             ServerPoolManager.publishNonePassed()
+            autoConnectJob = null
         }
     }
 
     private var autoConnectJob: kotlinx.coroutines.Job? = null
+
+    /**
+     * FILTERNET: lets the user back out of a search that is taking too long.
+     * Cancels the coroutine, the bulk measurement and the amber state.
+     */
+    private fun cancelAutoConnect() {
+        autoConnectJob?.cancel()
+        autoConnectJob = null
+        mainViewModel.onAction(MainAction.CancelTesting)
+        ServerPoolManager.publishIdle()
+    }
 
     private fun startV2Ray() {
         // FILTERNET: self-healing. The connect button used to do nothing whenever

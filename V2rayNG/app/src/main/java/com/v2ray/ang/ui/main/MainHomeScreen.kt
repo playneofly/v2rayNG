@@ -93,6 +93,7 @@ internal fun MainHomeScreen(
     onToggleService: () -> Unit,
     onTestCurrent: () -> Unit,
     onAutoConnect: () -> Unit,
+    onCancelAutoConnect: () -> Unit,
 ) {
     var speed by remember { mutableStateOf(LiveSpeedStore.Sample(0L, 0L, emptyList(), 0L)) }
     var pendingConnection by remember { mutableStateOf(false) }
@@ -111,12 +112,12 @@ internal fun MainHomeScreen(
         poolPhase is ServerPoolManager.Phase.Scanning ||
         poolPhase is ServerPoolManager.Phase.Measuring
 
-    // FILTERNET: order matters. While we are still proving a candidate the
-    // service is already running, and showing green there is exactly what made
-    // the app feel like it "connected" without working. Verification wins.
+    // FILTERNET: a live tunnel wins over everything. Measurement now happens
+    // BEFORE the tunnel is ever started, so if the service is running the hunt
+    // is genuinely over - keeping it amber here is what made the button stick.
     val coreState = when {
-        busy -> CoreState.Working
         isRunning -> CoreState.Connected
+        busy -> CoreState.Working
         !hasInternet -> CoreState.Offline
         else -> CoreState.Idle
     }
@@ -158,6 +159,19 @@ internal fun MainHomeScreen(
         }
     }
 
+    // FILTERNET: belt and braces against a stuck amber button. Once the tunnel
+    // is up, or once the measurement has finished without one, the pool phase
+    // must go back to neutral - otherwise "measuring" latches forever.
+    LaunchedEffect(isRunning) {
+        if (isRunning) ServerPoolManager.publishIdle()
+    }
+    LaunchedEffect(isMeasuring) {
+        if (!isMeasuring && poolPhase is ServerPoolManager.Phase.Measuring) {
+            delay(1500L)
+            if (!isMeasuring) ServerPoolManager.publishIdle()
+        }
+    }
+
     // FILTERNET: the public IP proves to the user that traffic really goes
     // through the tunnel. It is fetched a moment after the handshake settles.
     LaunchedEffect(isRunning) {
@@ -180,20 +194,27 @@ internal fun MainHomeScreen(
         ConnectCore(
             state = coreState,
             onClick = {
-                // FILTERNET: one button, four states. Offline does nothing but
-                // say so; otherwise we either stop, or hand over to the
-                // automatic "find a server and connect" flow.
-                if (coreState == CoreState.Offline) return@ConnectCore
-                if (isRunning) {
-                    onToggleService()
-                    return@ConnectCore
-                }
-                if (busy) return@ConnectCore
-                pendingConnection = true
-                onAutoConnect()
-                scope.launch {
-                    delay(8000L)
-                    pendingConnection = false
+                // FILTERNET: the button is never dead. Connected -> disconnect,
+                // searching -> abort the search, offline -> nothing to do,
+                // otherwise -> go and find a server.
+                when {
+                    isRunning -> onToggleService()
+
+                    busy -> {
+                        pendingConnection = false
+                        onCancelAutoConnect()
+                    }
+
+                    coreState == CoreState.Offline -> Unit
+
+                    else -> {
+                        pendingConnection = true
+                        onAutoConnect()
+                        scope.launch {
+                            delay(8000L)
+                            pendingConnection = false
+                        }
+                    }
                 }
             },
         )
@@ -395,7 +416,9 @@ private fun ConnectCore(state: CoreState, onClick: () -> Unit) {
             modifier = Modifier
                 .size(148.dp)
                 .clip(CircleShape)
-                .clickable(enabled = !working, onClick = onClick),
+                // FILTERNET: always enabled - a disabled button is how the
+                // user ended up unable to stop or cancel anything.
+                .clickable(onClick = onClick),
             shape = CircleShape,
             color = if (filled) Color.Transparent else MaterialTheme.colorScheme.surfaceContainer,
             contentColor = if (filled) Color.White else MaterialTheme.colorScheme.onSurface,
@@ -427,6 +450,7 @@ private fun ConnectCore(state: CoreState, onClick: () -> Unit) {
                             when (state) {
                                 CoreState.Offline -> R.string.fn_core_offline
                                 CoreState.Connected -> R.string.fn_core_on
+                                CoreState.Working -> R.string.fn_core_cancel
                                 else -> R.string.fn_core_off
                             }
                         ),

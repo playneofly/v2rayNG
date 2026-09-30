@@ -46,6 +46,9 @@ sealed interface MainAction {
 
     /** FILTERNET: find a working server automatically, then connect. */
     data object AutoConnect : MainAction
+
+    /** FILTERNET: abort a search that is still running. */
+    data object CancelAutoConnect : MainAction
     data object CancelTesting : MainAction
     data object RemoveAllServers : MainAction
     data object RemoveDuplicateServers : MainAction

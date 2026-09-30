@@ -679,4 +679,5 @@
     <string name="fn_verify_step">Testing server %1$s of %2$s…</string>
     <string name="fn_scan_fail_passed">No server passed the real test. Please try again.</string>
     <string name="fn_measuring">Testing servers for real…</string>
+    <string name="fn_core_cancel">CANCEL</string>
 </resources>

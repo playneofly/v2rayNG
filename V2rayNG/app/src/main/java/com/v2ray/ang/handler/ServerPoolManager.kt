@@ -381,6 +381,17 @@ object ServerPoolManager {
 
     private const val KEY_OFFSET = "filternet_pool_offset"
 
+    /**
+     * FILTERNET: back to neutral.
+     *
+     * [Phase.Measuring] used to be a one-way door - it was set when the
+     * short-list was handed over and nothing ever cleared it, so the button
+     * stayed amber for the rest of the session and refused to be tapped.
+     */
+    fun publishIdle() {
+        _phase.value = Phase.Idle
+    }
+
     fun publishConnected() {
         _phase.value = Phase.Ready(1)
     }

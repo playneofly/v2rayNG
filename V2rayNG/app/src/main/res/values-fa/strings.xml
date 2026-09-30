@@ -679,4 +679,5 @@
     <string name="fn_verify_step">آزمایش سرور %1$s از %2$s…</string>
     <string name="fn_scan_fail_passed">هیچ سروری از آزمایش واقعی رد نشد. دوباره تلاش کنید.</string>
     <string name="fn_measuring">در حال آزمایش واقعی سرورها…</string>
+    <string name="fn_core_cancel">لغو</string>
 </resources>

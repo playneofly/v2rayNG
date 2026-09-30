@@ -288,6 +288,7 @@ class MainViewModel(
             MainAction.ConnectBestServer -> connectBestServer()
             // FILTERNET: handled by the activity, which owns the service start.
             MainAction.AutoConnect -> Unit
+            MainAction.CancelAutoConnect -> Unit
             MainAction.CancelTesting -> cancelAllPing()
             MainAction.RemoveAllServers -> removeAllServerAsync()
             MainAction.RemoveDuplicateServers -> removeDuplicateServerAsync()
@@ -823,6 +824,9 @@ class MainViewModel(
 
     // ---------- Testing ----------
     fun cancelAllPing() {
+        // FILTERNET: whatever cancels a measurement must also release the
+        // amber state on the home button.
+        runCatching { com.v2ray.ang.handler.ServerPoolManager.publishIdle() }
         bulkTestJob?.cancel()
         bulkTestJob = null
         testRequests.cancelBulk()
