@@ -281,7 +281,7 @@ class MainActivity : HelperBaseComponentActivity() {
     private fun handleAutoConnect() {
         lifecycleScope.launch {
             val guid = withContext(Dispatchers.IO) {
-                ServerPoolManager.findAndSelect(applicationContext, forceRescan = false)
+                ServerPoolManager.findAndSelect(applicationContext)
             }
             if (guid == null) {
                 // the sheet/status line already explains why - no extra toast

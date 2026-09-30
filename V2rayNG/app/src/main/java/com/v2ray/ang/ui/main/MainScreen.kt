@@ -96,28 +96,6 @@ fun MainScreen(
         mainViewModel.serverGroupState(uiState.selectedGroupId)
     }
     val currentGroup by currentGroupFlow.collectAsStateWithLifecycle()
-    val selectedServer = remember(currentGroup.rows, uiState.selectedGuid) {
-        currentGroup.rows.firstOrNull { it.guid == uiState.selectedGuid }
-    }
-    // FILTERNET: name of the selected server, resolved even when it belongs to a
-    // group other than the one currently on screen.
-    val selectedServerName = remember(
-        selectedServer,
-        uiState.selectedGuid,
-        uiState.isRunning,
-        currentGroup.rows,
-        groups,
-    ) {
-        selectedServer?.remarks?.takeIf { it.isNotBlank() }
-            ?: uiState.selectedGuid
-                ?.takeIf { it.isNotEmpty() }
-                ?.let { guid ->
-                    runCatching { MmkvManager.decodeServerConfig(guid)?.remarks }.getOrNull()
-                }?.takeIf { it.isNotBlank() }
-            // FILTERNET: last resort, straight from storage. The name at the top used
-            // to stay empty whenever uiState.selectedGuid had not been filled in yet.
-            ?: mainViewModel.selectedServerNameOrNull()
-    }
 
     val removeServer: (String, String) -> Unit = { guid, profileName ->
         if (uiState.confirmRemove) {
@@ -210,7 +188,6 @@ fun MainScreen(
                 topBar = {
                     MainBrandTopBar(
                         tab = selectedTab,
-                        serverName = selectedServerName,
                         isRunning = uiState.isRunning,
                         isLoading = isLoading,
                         onMenuClick = { scope.launch { drawerState.open() } },
@@ -230,15 +207,9 @@ fun MainScreen(
                 ) {
                     when (selectedTab) {
                         MainRootTab.Home -> MainHomeScreen(
-                            selectedServer = selectedServer,
-                            selectedServerName = selectedServerName,
-                            servers = currentGroup.rows,
                             displayText = displayText,
                             isRunning = uiState.isRunning,
-                            isFindingBest = uiState.isFindingBest,
                             onToggleService = { onAction(MainAction.ToggleService) },
-                            onFindBest = { onAction(MainAction.AutoConnect) },
-                            onCancelFindBest = { onAction(MainAction.CancelTesting) },
                             onTestCurrent = { onAction(MainAction.TestCurrentServer) },
                             onAutoConnect = { onAction(MainAction.AutoConnect) },
                         )
@@ -256,7 +227,6 @@ fun MainScreen(
 @Composable
 private fun MainBrandTopBar(
     tab: MainRootTab,
-    serverName: String?,
     isRunning: Boolean,
     isLoading: Boolean,
     onMenuClick: () -> Unit,
@@ -284,9 +254,10 @@ private fun MainBrandTopBar(
                             },
                             style = MaterialTheme.typography.titleLarge,
                         )
+                        // FILTERNET: the server is an implementation detail now -
+                        // the user never chooses one, so its name is never shown.
                         Text(
-                            text = if (!serverName.isNullOrBlank() && isRunning) serverName
-                            else stringResource(R.string.fn_brand_tagline),
+                            text = stringResource(R.string.fn_brand_tagline),
                             style = MaterialTheme.typography.labelSmall,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,

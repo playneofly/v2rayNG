@@ -75,14 +75,19 @@ internal fun MainTrafficScreen() {
     var snapshot by remember { mutableStateOf(MainTrafficSnapshot()) }
     val scope = rememberCoroutineScope()
 
+    // FILTERNET: the numbers are written by the VPN service in another process,
+    // so a one-shot read showed a frozen snapshot. Re-read while the tab is open.
     LaunchedEffect(reloadKey) {
-        snapshot = withContext(Dispatchers.IO) {
-            MainTrafficSnapshot(
-                days = TrafficStatsManager.lastDays(7),
-                today = TrafficStatsManager.today(),
-                totalUp = TrafficStatsManager.totalUp(),
-                totalDown = TrafficStatsManager.totalDown(),
-            )
+        while (true) {
+            snapshot = withContext(Dispatchers.IO) {
+                MainTrafficSnapshot(
+                    days = TrafficStatsManager.lastDays(7),
+                    today = TrafficStatsManager.today(),
+                    totalUp = TrafficStatsManager.totalUp(),
+                    totalDown = TrafficStatsManager.totalDown(),
+                )
+            }
+            kotlinx.coroutines.delay(2000L)
         }
     }
 

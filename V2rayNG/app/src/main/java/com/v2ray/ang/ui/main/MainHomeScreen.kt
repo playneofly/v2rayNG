@@ -87,15 +87,9 @@ import kotlin.math.max
 
 @Composable
 internal fun MainHomeScreen(
-    selectedServer: ServerRowUiModel?,
-    selectedServerName: String?,
-    servers: List<ServerRowUiModel>,
     displayText: String,
     isRunning: Boolean,
-    isFindingBest: Boolean,
     onToggleService: () -> Unit,
-    onFindBest: () -> Unit,
-    onCancelFindBest: () -> Unit,
     onTestCurrent: () -> Unit,
     onAutoConnect: () -> Unit,
 ) {
@@ -152,10 +146,6 @@ internal fun MainHomeScreen(
         publicIp = withContext(Dispatchers.IO) { PublicIpProbe.lookup() }
     }
 
-    if (isFindingBest) {
-        BestServerSheet(servers = servers, onCancel = onCancelFindBest)
-    }
-
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -196,21 +186,7 @@ internal fun MainHomeScreen(
             phase = poolPhase,
         )
 
-        Spacer(Modifier.height(14.dp))
-
-        SmartConnectButton(
-            isScanning = busy,
-            onClick = { if (coreState != CoreState.Offline) onFindBest() },
-        )
-
-        Spacer(Modifier.height(10.dp))
-
-        CurrentServerCard(
-            server = selectedServer,
-            fallbackName = selectedServerName,
-        )
-
-        Spacer(Modifier.height(10.dp))
+        Spacer(Modifier.height(18.dp))
 
         StatCardsRow(
             isRunning = isRunning,
@@ -498,158 +474,6 @@ private fun StatusLine(
     }
 }
 
-/* ══════════════════════ smart connect button ══════════════════════ */
-
-@Composable
-private fun SmartConnectButton(isScanning: Boolean, onClick: () -> Unit) {
-    Surface(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(FilternetTokens.RadiusMedium))
-            .clickable(enabled = !isScanning, onClick = onClick),
-        shape = RoundedCornerShape(FilternetTokens.RadiusMedium),
-        color = Color.Transparent,
-        contentColor = MaterialTheme.colorScheme.onBackground,
-    ) {
-        Box(
-            modifier = Modifier.background(FilternetAccentBrush),
-            contentAlignment = Alignment.Center,
-        ) {
-            Row(
-                modifier = Modifier.padding(vertical = 14.dp, horizontal = 16.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Icon(
-                    painter = painterResource(R.drawable.ic_bolt_24dp),
-                    contentDescription = null,
-                    modifier = Modifier.size(17.dp),
-                    tint = Color.White,
-                )
-                Spacer(Modifier.width(8.dp))
-                Text(
-                    text = stringResource(R.string.fn_pick_best),
-                    style = MaterialTheme.typography.titleSmall,
-                    color = Color.White,
-                )
-            }
-        }
-    }
-}
-
-/* ══════════════════════ current server card ══════════════════════ */
-
-@Composable
-private fun CurrentServerCard(
-    server: ServerRowUiModel?,
-    fallbackName: String?,
-) {
-    val name = server?.remarks?.takeIf { it.isNotBlank() }
-        ?: fallbackName?.takeIf { it.isNotBlank() }
-        ?: stringResource(R.string.fn_no_server_selected)
-    val delay = server?.testDelayMillis ?: 0L
-    val gradient = FilternetTokens.gradientFor(name)
-
-    Surface(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(FilternetTokens.RadiusLarge)),
-        shape = RoundedCornerShape(FilternetTokens.RadiusLarge),
-        color = MaterialTheme.colorScheme.surfaceContainer,
-        contentColor = MaterialTheme.colorScheme.onSurface,
-        border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
-    ) {
-        Row(
-            modifier = Modifier.padding(12.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Box(
-                modifier = Modifier
-                    .size(42.dp)
-                    .clip(RoundedCornerShape(14.dp))
-                    .background(Brush.linearGradient(listOf(gradient.first, gradient.second))),
-                contentAlignment = Alignment.Center,
-            ) {
-                Text(
-                    text = serverInitials(name),
-                    style = MaterialTheme.typography.labelLarge,
-                    color = Color.White,
-                )
-            }
-
-            Spacer(Modifier.width(12.dp))
-
-            Column(Modifier.weight(1f)) {
-                Text(
-                    text = name,
-                    style = MaterialTheme.typography.titleSmall,
-                    color = MaterialTheme.colorScheme.onSurface,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-                Spacer(Modifier.height(3.dp))
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(
-                        text = stringResource(R.string.fn_ping_label),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                    Spacer(Modifier.width(4.dp))
-                    Text(
-                        text = if (delay > 0L) faDigits(delay) else "—",
-                        style = MaterialTheme.typography.labelMedium,
-                        color = pingToneColor(delay),
-                    )
-                    Spacer(Modifier.width(3.dp))
-                    Text(
-                        text = stringResource(R.string.fn_ms),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                    if (server?.typeDescription?.isNotBlank() == true) {
-                        Spacer(Modifier.width(6.dp))
-                        Text(
-                            text = "·",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.outline,
-                        )
-                        Spacer(Modifier.width(6.dp))
-                        Text(
-                            text = server.typeDescription,
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                        )
-                    }
-                }
-            }
-
-            Box(
-                modifier = Modifier
-                    .size(32.dp)
-                    .clip(CircleShape)
-                    .background(MaterialTheme.colorScheme.surfaceContainerHighest),
-                contentAlignment = Alignment.Center,
-            ) {
-                Icon(
-                    painter = painterResource(R.drawable.ic_arrow_back_24dp),
-                    contentDescription = null,
-                    modifier = Modifier.size(15.dp),
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-        }
-    }
-}
-
-private fun serverInitials(name: String): String {
-    val cleaned = name.trim()
-    if (cleaned.isEmpty()) return "?"
-    val latin = cleaned.filter { it in 'a'..'z' || it in 'A'..'Z' }
-    if (latin.length >= 2) return latin.take(2).uppercase()
-    return cleaned.take(2)
-}
-
 /* ════════════════════════════ stat cards ════════════════════════════ */
 
 @Composable
@@ -798,153 +622,6 @@ private fun SpeedSparkline(values: List<Long>, color: Color, modifier: Modifier 
             brush = Brush.verticalGradient(listOf(color.copy(alpha = 0.28f), Color.Transparent)),
         )
         drawPath(path, color, style = Stroke(1.8.dp.toPx(), cap = StrokeCap.Round))
-    }
-}
-
-/* ══════════════════════ best server scan sheet ══════════════════════ */
-
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-private fun BestServerSheet(
-    servers: List<ServerRowUiModel>,
-    onCancel: () -> Unit,
-) {
-    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
-    // FILTERNET: duplicate keys crash a LazyColumn instantly, and fillMaxWidth
-    // throws on a fraction outside 0..1. Both are made impossible here.
-    val safeServers = remember(servers) { servers.distinctBy { it.guid } }
-    val completed = safeServers.count { it.testDelayMillis != 0L }
-    val total = safeServers.size.coerceAtLeast(1)
-    val progress = (completed.toFloat() / total).coerceIn(0f, 1f)
-
-    ModalBottomSheet(
-        onDismissRequest = onCancel,
-        sheetState = sheetState,
-        containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
-        contentColor = MaterialTheme.colorScheme.onSurface,
-        shape = RoundedCornerShape(topStart = 30.dp, topEnd = 30.dp),
-        dragHandle = {
-            Box(
-                Modifier
-                    .padding(top = 10.dp, bottom = 2.dp)
-                    .size(width = 42.dp, height = 4.dp)
-                    .background(MaterialTheme.colorScheme.outlineVariant, CircleShape)
-            )
-        },
-    ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 22.dp)
-                .padding(bottom = 26.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-        ) {
-            RadarGraphic(progress = progress)
-
-            Spacer(Modifier.height(14.dp))
-
-            Text(
-                text = stringResource(R.string.fn_scan_title),
-                style = MaterialTheme.typography.titleLarge,
-                color = MaterialTheme.colorScheme.onSurface,
-            )
-            Spacer(Modifier.height(6.dp))
-            Text(
-                text = stringResource(R.string.fn_scan_desc),
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                textAlign = TextAlign.Center,
-            )
-
-            Spacer(Modifier.height(16.dp))
-
-            Box(
-                Modifier
-                    .fillMaxWidth()
-                    .height(5.dp)
-                    .clip(CircleShape)
-                    .background(MaterialTheme.colorScheme.surfaceContainerHighest)
-            ) {
-                Box(
-                    Modifier
-                        .fillMaxWidth(progress)
-                        .height(5.dp)
-                        .clip(CircleShape)
-                        .background(FilternetAccentBrush)
-                )
-            }
-
-            Spacer(Modifier.height(10.dp))
-
-            Text(
-                text = stringResource(
-                    R.string.fn_scan_counter,
-                    faDigits(completed),
-                    faDigits(safeServers.size),
-                ),
-                style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-
-            Spacer(Modifier.height(18.dp))
-
-            Surface(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clip(RoundedCornerShape(FilternetTokens.RadiusMedium))
-                    .clickable(onClick = onCancel),
-                shape = RoundedCornerShape(FilternetTokens.RadiusMedium),
-                color = MaterialTheme.colorScheme.surfaceContainerHighest,
-                contentColor = MaterialTheme.colorScheme.onSurface,
-            ) {
-                Box(Modifier.padding(vertical = 13.dp), contentAlignment = Alignment.Center) {
-                    Text(
-                        text = stringResource(R.string.fn_scan_cancel),
-                        style = MaterialTheme.typography.titleSmall,
-                        color = MaterialTheme.colorScheme.onSurface,
-                    )
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun RadarGraphic(progress: Float) {
-    val transition = rememberInfiniteTransition(label = "radar")
-    val sweep by transition.animateFloat(
-        initialValue = 0f, targetValue = 360f,
-        animationSpec = infiniteRepeatable(tween(2200, easing = LinearEasing)),
-        label = "sweep",
-    )
-    val ring = MaterialTheme.colorScheme.outlineVariant
-    val accent = FilternetTokens.Accent
-    val accent2 = FilternetTokens.Accent2
-
-    Box(Modifier.size(104.dp), contentAlignment = Alignment.Center) {
-        Canvas(Modifier.fillMaxSize()) {
-            val r = size.minDimension / 2f
-            for (i in 1..3) {
-                drawCircle(color = ring, radius = r * i / 3f, style = Stroke(1.dp.toPx()))
-            }
-            drawArc(
-                brush = Brush.sweepGradient(listOf(Color.Transparent, accent.copy(alpha = 0.55f), Color.Transparent)),
-                startAngle = sweep,
-                sweepAngle = 80f,
-                useCenter = true,
-            )
-            drawCircle(
-                brush = Brush.linearGradient(listOf(accent, accent2)),
-                radius = r * 0.16f,
-                center = Offset(size.width / 2f, size.height / 2f),
-            )
-        }
-        Text(
-            text = faDigits("${(progress * 100).toInt()}٪"),
-            style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.padding(top = 46.dp),
-        )
     }
 }
 

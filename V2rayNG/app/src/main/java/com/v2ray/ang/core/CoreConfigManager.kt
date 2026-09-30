@@ -98,19 +98,24 @@ object CoreConfigManager {
 
         val json = JsonUtil.parseString(raw)?.takeIf { it.isJsonObject }?.asJsonObject ?: return result
 
-        // Inject or remove traffic statistics configuration based on user preference
-        if (MmkvManager.decodeSettingsBool(AppConfig.PREF_SPEED_ENABLED) == true) {
+        // FILTERNET: traffic statistics are ALWAYS collected.
+        //
+        // They used to be tied to the "show speed in the notification" switch,
+        // which is off by default. With it off the core was told not to count
+        // anything, so the download/upload cards on the home screen and the whole
+        // traffic tab stayed at zero forever. The switch now only decides whether
+        // the notification shows a speed line - never whether we measure.
+        @Suppress("KotlinConstantConditions")
+        if (true) {
             if (!json.has("stats")) {
                 json.add("stats", JsonObject())
             }
-            if (!json.has("policy")) {
-                val policyObj = JsonObject()
-                val systemObj = JsonObject()
-                systemObj.addProperty("statsOutboundUplink", true)
-                systemObj.addProperty("statsOutboundDownlink", true)
-                policyObj.add("system", systemObj)
-                json.add("policy", policyObj)
-            }
+            val policyObj = json.get("policy")?.takeIf { it.isJsonObject }?.asJsonObject
+                ?: JsonObject().also { json.add("policy", it) }
+            val systemObj = policyObj.get("system")?.takeIf { it.isJsonObject }?.asJsonObject
+                ?: JsonObject().also { policyObj.add("system", it) }
+            systemObj.addProperty("statsOutboundUplink", true)
+            systemObj.addProperty("statsOutboundDownlink", true)
         } else {
             json.remove("stats")
             // Keep user-defined policy levels, only strip the stats-related system block
@@ -713,10 +718,9 @@ object CoreConfigManager {
      * Remove speed-test runtime sections when the feature is disabled.
      */
     private fun applySpeedDisabled(v2rayConfig: V2rayConfig) {
-        if (MmkvManager.decodeSettingsBool(AppConfig.PREF_SPEED_ENABLED) != true) {
-            v2rayConfig.stats = null
-            v2rayConfig.policy?.system = null
-        }
+        // FILTERNET: deliberately does nothing now. Stripping the stats block here
+        // was the second half of the bug that left the speed cards and the traffic
+        // tab permanently empty. Statistics are always on.
     }
 
     /*

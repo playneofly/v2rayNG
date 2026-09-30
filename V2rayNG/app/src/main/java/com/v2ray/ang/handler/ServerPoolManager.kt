@@ -112,20 +112,27 @@ object ServerPoolManager {
     /**
      * Finds a working server and leaves it selected, ready to connect.
      *
+     * Called fresh on every tap of the connect button - there is no other way
+     * to pick a server any more.
+     *
      * @return the guid to connect to, or null when nothing could be found.
      */
-    suspend fun findAndSelect(context: Context, forceRescan: Boolean): String? =
+    suspend fun findAndSelect(context: Context): String? =
         withContext(Dispatchers.IO) {
             if (!running.compareAndSet(false, true)) return@withContext null
             try {
-                // ---- fast path: something already proven still answers -------
-                if (!forceRescan) {
-                    val known = knownGoodGuid()
-                    if (known != null) {
-                        MmkvManager.setSelectServer(known)
-                        _phase.value = Phase.Ready(1)
-                        return@withContext known
-                    }
+                // ---- fast path -------------------------------------------------
+                // Every tap really does go looking again: the servers that worked
+                // last time are re-measured right now, and only a server that
+                // answers *at this moment* is accepted. Nothing stale is reused.
+                // It is simply a much smaller search, so it usually finishes in a
+                // second or two instead of five.
+                _phase.value = Phase.Scanning(checked = 0, found = 0, wave = 0)
+                val known = knownGoodGuid()
+                if (known != null) {
+                    MmkvManager.setSelectServer(known)
+                    _phase.value = Phase.Ready(1)
+                    return@withContext known
                 }
 
                 _phase.value = Phase.Downloading
