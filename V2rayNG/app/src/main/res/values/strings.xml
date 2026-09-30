@@ -586,7 +586,7 @@
     <string name="fn_auto_switched">Server was unstable, switched to %1$s</string>
     <string name="fn_category">FILTERNET</string>
     <string name="fn_no_server_title">No server found</string>
-    <string name="fn_no_server_msg">You haven\'t added any server yet. Add one first.</string>
+    <string name="fn_no_server_msg">No server is ready yet. Check your internet and tap the button again.</string>
     <string name="fn_add_server_title">Add a server with…</string>
     <string name="fn_add_from_clipboard">From clipboard</string>
     <string name="fn_add_from_clipboard_sub">Paste a copied config or subscription link</string>
@@ -656,4 +656,24 @@
     <string name="fn_settings_subtitle">Security and connection setup</string>
     <string name="fn_stats_subtitle">Your data usage</string>
     <string name="fn_brand_tagline">Secure VPN</string>
+    <string name="fn_perm_title">One last step</string>
+    <string name="fn_perm_desc">FILTERNET needs these two permissions to protect your connection. Nothing works without them.</string>
+    <string name="fn_perm_vpn">VPN connection</string>
+    <string name="fn_perm_vpn_sub">Lets the app route your traffic securely</string>
+    <string name="fn_perm_notify">Notifications</string>
+    <string name="fn_perm_notify_sub">Keeps the connection alive in the background</string>
+    <string name="fn_perm_grant">Allow</string>
+    <string name="fn_perm_hint">The app continues automatically once both are allowed.</string>
+    <string name="fn_state_offline">No internet</string>
+    <string name="fn_core_offline">OFFLINE</string>
+    <string name="fn_line_offline">Check your internet connection</string>
+    <string name="fn_state_searching">Looking for the best server…</string>
+    <string name="fn_scan_wave">Scanning servers… %1$s checked, %2$s found</string>
+    <string name="fn_scan_fail_none">No fast server found. Please try again.</string>
+    <string name="fn_scan_fail_net">Could not reach the server list. Check your internet.</string>
+    <string name="fn_preparing">Preparing…</string>
+    <string name="fn_auto_empty">Your servers are being prepared automatically. Just tap the button on the home screen.</string>
+    <string name="fn_advanced_on">Advanced mode enabled</string>
+    <string name="fn_advanced_off">Advanced mode disabled</string>
+    <string name="fn_advanced_title">Advanced mode</string>
 </resources>

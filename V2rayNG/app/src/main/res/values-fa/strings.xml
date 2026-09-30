@@ -586,7 +586,7 @@
     <string name="fn_auto_switched">سرور ناپایدار بود، به %1$s سوییچ شد</string>
     <string name="fn_category">فیلترنت</string>
     <string name="fn_no_server_title">سروری یافت نشد</string>
-    <string name="fn_no_server_msg">هنوز هیچ سروری اضافه نکرده‌اید. اول یک سرور اضافه کنید.</string>
+    <string name="fn_no_server_msg">سرور آماده نشد. اینترنتت را بررسی کن و دوباره دکمه را بزن.</string>
     <string name="fn_add_server_title">اضافه کردن سرور با…</string>
     <string name="fn_add_from_clipboard">از کلیپ‌بورد</string>
     <string name="fn_add_from_clipboard_sub">چسباندن کانفیگ یا لینک اشتراک کپی‌شده</string>
@@ -656,4 +656,24 @@
     <string name="fn_settings_subtitle">پیکربندی امنیت و اتصال</string>
     <string name="fn_stats_subtitle">مصرف داده‌ی شما</string>
     <string name="fn_brand_tagline">فیلترشکن امن</string>
+    <string name="fn_perm_title">فقط یک قدم مانده</string>
+    <string name="fn_perm_desc">فیلترنت برای محافظت از اتصال شما به این دو مجوز نیاز دارد. بدون آن‌ها هیچ‌چیز کار نمی‌کند.</string>
+    <string name="fn_perm_vpn">اتصال VPN</string>
+    <string name="fn_perm_vpn_sub">اجازه می‌دهد ترافیک شما امن عبور کند</string>
+    <string name="fn_perm_notify">اعلان‌ها</string>
+    <string name="fn_perm_notify_sub">اتصال را در پس‌زمینه زنده نگه می‌دارد</string>
+    <string name="fn_perm_grant">اجازه بده</string>
+    <string name="fn_perm_hint">به‌محض اینکه هر دو را اجازه بدهید، برنامه خودکار ادامه می‌دهد.</string>
+    <string name="fn_state_offline">اینترنت قطع است</string>
+    <string name="fn_core_offline">آفلاین</string>
+    <string name="fn_line_offline">اتصال اینترنت خود را بررسی کنید</string>
+    <string name="fn_state_searching">در حال یافتن بهترین سرور…</string>
+    <string name="fn_scan_wave">بررسی سرورها… %1$s بررسی شد، %2$s پیدا شد</string>
+    <string name="fn_scan_fail_none">سرور سریعی پیدا نشد. دوباره تلاش کنید.</string>
+    <string name="fn_scan_fail_net">دسترسی به لیست سرورها ممکن نشد. اینترنتت را بررسی کن.</string>
+    <string name="fn_preparing">در حال آماده‌سازی…</string>
+    <string name="fn_auto_empty">سرورهای شما خودکار آماده می‌شوند. کافی است در صفحه‌ی خانه دکمه را بزنید.</string>
+    <string name="fn_advanced_on">حالت پیشرفته فعال شد</string>
+    <string name="fn_advanced_off">حالت پیشرفته غیرفعال شد</string>
+    <string name="fn_advanced_title">حالت پیشرفته</string>
 </resources>

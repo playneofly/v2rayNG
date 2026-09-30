@@ -286,6 +286,8 @@ class MainViewModel(
             MainAction.TestAllServers -> testAllRealPing(true)
             MainAction.TestRealAllServers -> testAllRealPing()
             MainAction.ConnectBestServer -> connectBestServer()
+            // FILTERNET: handled by the activity, which owns the service start.
+            MainAction.AutoConnect -> Unit
             MainAction.CancelTesting -> cancelAllPing()
             MainAction.RemoveAllServers -> removeAllServerAsync()
             MainAction.RemoveDuplicateServers -> removeDuplicateServerAsync()

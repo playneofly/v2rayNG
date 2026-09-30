@@ -34,8 +34,9 @@ internal enum class MainRootTab(
     @StringRes val labelRes: Int,
     val glyph: MainNavigationGlyphType,
 ) {
+    // FILTERNET: the app picks servers on its own now, so there is no servers
+    // tab any more - only home, traffic and settings.
     Home(R.string.app_name, MainNavigationGlyphType.Home),
-    Servers(R.string.title_server, MainNavigationGlyphType.Servers),
     Stats(R.string.fn_traffic_title, MainNavigationGlyphType.Stats),
     Settings(R.string.title_settings, MainNavigationGlyphType.Settings),
 }

@@ -43,6 +43,9 @@ sealed interface MainAction {
     data object TestRealAllServers : MainAction
     /** FILTERNET: ping every server, then connect to the fastest one. */
     data object ConnectBestServer : MainAction
+
+    /** FILTERNET: find a working server automatically, then connect. */
+    data object AutoConnect : MainAction
     data object CancelTesting : MainAction
     data object RemoveAllServers : MainAction
     data object RemoveDuplicateServers : MainAction

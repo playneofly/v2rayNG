@@ -1,5 +1,7 @@
 package com.v2ray.ang.ui.main
 
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.v2ray.ang.handler.ServerPoolManager
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
@@ -91,20 +93,31 @@ internal fun MainHomeScreen(
     displayText: String,
     isRunning: Boolean,
     isFindingBest: Boolean,
-    hasAnyServer: Boolean,
-    onNoServer: () -> Unit,
     onToggleService: () -> Unit,
     onFindBest: () -> Unit,
     onCancelFindBest: () -> Unit,
-    onOpenServers: () -> Unit,
     onTestCurrent: () -> Unit,
-    onGetFreeServers: () -> Unit,
+    onAutoConnect: () -> Unit,
 ) {
     var speed by remember { mutableStateOf(LiveSpeedStore.Sample(0L, 0L, emptyList(), 0L)) }
     var pendingConnection by remember { mutableStateOf(false) }
     var uptimeSeconds by remember { mutableLongStateOf(0L) }
     var publicIp by remember { mutableStateOf<String?>(null) }
     val scope = rememberCoroutineScope()
+    // FILTERNET: the button is red and refuses to spin when there is no network.
+    val hasInternet by rememberHasInternet()
+    val poolPhase by ServerPoolManager.phase.collectAsStateWithLifecycle()
+
+    val busy = pendingConnection ||
+        poolPhase is ServerPoolManager.Phase.Downloading ||
+        poolPhase is ServerPoolManager.Phase.Scanning
+
+    val coreState = when {
+        isRunning -> CoreState.Connected
+        busy -> CoreState.Working
+        !hasInternet -> CoreState.Offline
+        else -> CoreState.Idle
+    }
 
     LaunchedEffect(isRunning) {
         if (!isRunning) {
@@ -150,25 +163,27 @@ internal fun MainHomeScreen(
             .padding(horizontal = 16.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        StatusPill(isRunning = isRunning, isConnecting = pendingConnection)
+        StatusPill(state = coreState)
 
         Spacer(Modifier.height(4.dp))
 
         ConnectCore(
-            isRunning = isRunning,
-            isConnecting = pendingConnection,
+            state = coreState,
             onClick = {
-                if (!hasAnyServer) {
-                    onNoServer()
+                // FILTERNET: one button, four states. Offline does nothing but
+                // say so; otherwise we either stop, or hand over to the
+                // automatic "find a server and connect" flow.
+                if (coreState == CoreState.Offline) return@ConnectCore
+                if (isRunning) {
+                    onToggleService()
                     return@ConnectCore
                 }
-                pendingConnection = !isRunning
-                onToggleService()
-                if (!isRunning) {
-                    scope.launch {
-                        delay(6000L)
-                        pendingConnection = false
-                    }
+                if (busy) return@ConnectCore
+                pendingConnection = true
+                onAutoConnect()
+                scope.launch {
+                    delay(45000L)
+                    pendingConnection = false
                 }
             },
         )
@@ -176,16 +191,16 @@ internal fun MainHomeScreen(
         Spacer(Modifier.height(6.dp))
 
         StatusLine(
-            isRunning = isRunning,
-            isConnecting = pendingConnection,
+            state = coreState,
             uptimeSeconds = uptimeSeconds,
+            phase = poolPhase,
         )
 
         Spacer(Modifier.height(14.dp))
 
         SmartConnectButton(
-            isScanning = isFindingBest,
-            onClick = { if (hasAnyServer) onFindBest() else onNoServer() },
+            isScanning = busy,
+            onClick = { if (coreState != CoreState.Offline) onFindBest() },
         )
 
         Spacer(Modifier.height(10.dp))
@@ -193,7 +208,6 @@ internal fun MainHomeScreen(
         CurrentServerCard(
             server = selectedServer,
             fallbackName = selectedServerName,
-            onClick = onOpenServers,
         )
 
         Spacer(Modifier.height(10.dp))
@@ -206,34 +220,39 @@ internal fun MainHomeScreen(
             onStatusClick = onTestCurrent,
         )
 
-        Spacer(Modifier.height(10.dp))
-
-        GiftServerCallToAction(onClick = onGetFreeServers)
-
         Spacer(Modifier.height(16.dp))
     }
 }
 
+/* ════════════════════════════ core state ════════════════════════════ */
+
+/**
+ * FILTERNET: the four states of the big button.
+ *
+ *   Offline   red    - no internet at all, pressing it is pointless
+ *   Idle      grey   - ready, waiting for a tap
+ *   Working   amber  - searching for a server / handshaking
+ *   Connected green  - tunnel is up
+ */
+internal enum class CoreState { Offline, Idle, Working, Connected }
+
+private val CoreState.tint: Color
+    get() = when (this) {
+        CoreState.Offline -> FilternetTokens.Rose
+        CoreState.Idle -> FilternetTokens.Accent
+        CoreState.Working -> FilternetTokens.Amber
+        CoreState.Connected -> FilternetTokens.Mint
+    }
+
 /* ════════════════════════════ status pill ════════════════════════════ */
 
 @Composable
-private fun StatusPill(isRunning: Boolean, isConnecting: Boolean) {
-    val bg: Color
-    val fg: Color
-    val dot: Color
-    when {
-        isRunning -> {
-            bg = FilternetTokens.Mint.copy(alpha = 0.12f); fg = FilternetTokens.Mint; dot = FilternetTokens.Mint
-        }
-        isConnecting -> {
-            bg = FilternetTokens.Accent.copy(alpha = 0.12f); fg = FilternetTokens.Accent; dot = FilternetTokens.Accent
-        }
-        else -> {
-            bg = MaterialTheme.colorScheme.surfaceContainerHighest
-            fg = MaterialTheme.colorScheme.onSurfaceVariant
-            dot = MaterialTheme.colorScheme.outline
-        }
-    }
+private fun StatusPill(state: CoreState) {
+    val tint = state.tint
+    val neutral = state == CoreState.Idle
+    val bg = if (neutral) MaterialTheme.colorScheme.surfaceContainerHighest
+    else tint.copy(alpha = 0.12f)
+    val fg = if (neutral) MaterialTheme.colorScheme.onSurfaceVariant else tint
 
     val transition = rememberInfiniteTransition(label = "pill")
     val pulse by transition.animateFloat(
@@ -251,16 +270,17 @@ private fun StatusPill(isRunning: Boolean, isConnecting: Boolean) {
             Box(
                 Modifier
                     .size(6.dp)
-                    .scale(if (isRunning || isConnecting) pulse else 1f)
-                    .background(dot, CircleShape)
+                    .scale(if (state == CoreState.Connected || state == CoreState.Working) pulse else 1f)
+                    .background(if (neutral) MaterialTheme.colorScheme.outline else tint, CircleShape)
             )
             Spacer(Modifier.width(8.dp))
             Text(
                 text = stringResource(
-                    when {
-                        isRunning -> R.string.fn_state_secure
-                        isConnecting -> R.string.fn_state_connecting
-                        else -> R.string.fn_state_off
+                    when (state) {
+                        CoreState.Offline -> R.string.fn_state_offline
+                        CoreState.Working -> R.string.fn_state_searching
+                        CoreState.Connected -> R.string.fn_state_secure
+                        CoreState.Idle -> R.string.fn_state_off
                     }
                 ),
                 style = MaterialTheme.typography.labelMedium,
@@ -273,7 +293,7 @@ private fun StatusPill(isRunning: Boolean, isConnecting: Boolean) {
 /* ════════════════════════════ connect core ════════════════════════════ */
 
 @Composable
-private fun ConnectCore(isRunning: Boolean, isConnecting: Boolean, onClick: () -> Unit) {
+private fun ConnectCore(state: CoreState, onClick: () -> Unit) {
     val transition = rememberInfiniteTransition(label = "core")
     val slowSpin by transition.animateFloat(
         initialValue = 0f, targetValue = 360f,
@@ -291,22 +311,25 @@ private fun ConnectCore(isRunning: Boolean, isConnecting: Boolean, onClick: () -
         label = "halo",
     )
 
+    val connected = state == CoreState.Connected
+    val working = state == CoreState.Working
+    val offline = state == CoreState.Offline
+    val tint = state.tint
     val ringIdle = MaterialTheme.colorScheme.outlineVariant
-    val accent = FilternetTokens.Accent
-    val accent2 = FilternetTokens.Accent2
 
-    Box(
-        modifier = Modifier.size(248.dp),
-        contentAlignment = Alignment.Center,
-    ) {
-        // expanding halos while connected
-        if (isRunning) {
+    // The filled button uses a gradient when connected, a flat colour otherwise.
+    val fillStart = if (connected) FilternetTokens.Mint else tint
+    val fillEnd = if (connected) FilternetTokens.Accent else tint
+
+    Box(modifier = Modifier.size(248.dp), contentAlignment = Alignment.Center) {
+        if (connected) {
             Canvas(Modifier.fillMaxSize()) {
                 val base = size.minDimension / 2f
                 for (i in 0..1) {
                     val p = ((halo + i * 0.5f) % 1f)
                     drawCircle(
-                        color = (if (i == 0) accent else accent2).copy(alpha = (1f - p) * 0.45f),
+                        color = (if (i == 0) FilternetTokens.Mint else FilternetTokens.Accent)
+                            .copy(alpha = (1f - p) * 0.45f),
                         radius = base * (0.56f + p * 0.42f),
                         style = Stroke(width = (2f - p).coerceAtLeast(0.6f).dp.toPx()),
                     )
@@ -314,14 +337,15 @@ private fun ConnectCore(isRunning: Boolean, isConnecting: Boolean, onClick: () -
             }
         }
 
-        // outer dashed orbit
         Canvas(
             Modifier
                 .fillMaxSize()
-                .rotate(if (isConnecting) fastSpin else slowSpin)
+                .rotate(if (working) fastSpin else slowSpin)
         ) {
             drawCircle(
-                color = if (isRunning || isConnecting) accent.copy(alpha = 0.45f) else ringIdle,
+                color = if (offline) FilternetTokens.Rose.copy(alpha = 0.35f)
+                else if (connected || working) tint.copy(alpha = 0.45f)
+                else ringIdle,
                 radius = size.minDimension / 2f - 4.dp.toPx(),
                 style = Stroke(
                     width = 1.5.dp.toPx(),
@@ -331,7 +355,6 @@ private fun ConnectCore(isRunning: Boolean, isConnecting: Boolean, onClick: () -
             )
         }
 
-        // inner dotted orbit, spinning the other way
         Canvas(
             Modifier
                 .fillMaxSize()
@@ -339,7 +362,8 @@ private fun ConnectCore(isRunning: Boolean, isConnecting: Boolean, onClick: () -
                 .rotate(-slowSpin * 1.6f)
         ) {
             drawCircle(
-                color = if (isRunning) accent2.copy(alpha = 0.5f) else ringIdle.copy(alpha = 0.5f),
+                color = if (connected) FilternetTokens.Accent.copy(alpha = 0.5f)
+                else ringIdle.copy(alpha = 0.5f),
                 radius = size.minDimension / 2f,
                 style = Stroke(
                     width = 1.dp.toPx(),
@@ -349,8 +373,7 @@ private fun ConnectCore(isRunning: Boolean, isConnecting: Boolean, onClick: () -
             )
         }
 
-        // handshake arc
-        if (isConnecting) {
+        if (working) {
             Canvas(
                 Modifier
                     .fillMaxSize()
@@ -358,7 +381,9 @@ private fun ConnectCore(isRunning: Boolean, isConnecting: Boolean, onClick: () -
                     .rotate(fastSpin)
             ) {
                 drawArc(
-                    brush = Brush.linearGradient(listOf(accent, accent2)),
+                    brush = Brush.linearGradient(
+                        listOf(FilternetTokens.Amber, FilternetTokens.Accent2)
+                    ),
                     startAngle = 0f,
                     sweepAngle = 96f,
                     useCenter = false,
@@ -367,41 +392,49 @@ private fun ConnectCore(isRunning: Boolean, isConnecting: Boolean, onClick: () -
             }
         }
 
-        // the button itself
+        val filled = connected || working || offline
+
         Surface(
             modifier = Modifier
                 .size(148.dp)
                 .clip(CircleShape)
-                .clickable(enabled = !isConnecting, onClick = onClick),
+                .clickable(enabled = !working, onClick = onClick),
             shape = CircleShape,
-            color = if (isRunning) Color.Transparent else MaterialTheme.colorScheme.surfaceContainer,
-            contentColor = if (isRunning) Color.White else MaterialTheme.colorScheme.onSurface,
-            border = if (isRunning) null
+            color = if (filled) Color.Transparent else MaterialTheme.colorScheme.surfaceContainer,
+            contentColor = if (filled) Color.White else MaterialTheme.colorScheme.onSurface,
+            border = if (filled) null
             else androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
-            shadowElevation = if (isRunning) 0.dp else 6.dp,
+            shadowElevation = if (filled) 0.dp else 6.dp,
         ) {
             Box(
                 modifier = Modifier.then(
-                    if (isRunning) Modifier.background(
-                        Brush.linearGradient(listOf(accent, accent2))
+                    if (filled) Modifier.background(
+                        Brush.linearGradient(listOf(fillStart, fillEnd))
                     ) else Modifier
                 ),
                 contentAlignment = Alignment.Center,
             ) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     Icon(
-                        painter = painterResource(R.drawable.ic_power_settings_new_24dp),
+                        painter = painterResource(
+                            if (offline) R.drawable.ic_language_24dp
+                            else R.drawable.ic_power_settings_new_24dp
+                        ),
                         contentDescription = null,
                         modifier = Modifier.size(42.dp),
-                        tint = if (isRunning) Color.White else MaterialTheme.colorScheme.onSurfaceVariant,
+                        tint = if (filled) Color.White else MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                     Spacer(Modifier.height(6.dp))
                     Text(
                         text = stringResource(
-                            if (isRunning) R.string.fn_core_on else R.string.fn_core_off
+                            when (state) {
+                                CoreState.Offline -> R.string.fn_core_offline
+                                CoreState.Connected -> R.string.fn_core_on
+                                else -> R.string.fn_core_off
+                            }
                         ),
                         style = MaterialTheme.typography.labelSmall,
-                        color = if (isRunning) Color.White.copy(alpha = 0.92f)
+                        color = if (filled) Color.White.copy(alpha = 0.92f)
                         else MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
@@ -413,29 +446,54 @@ private fun ConnectCore(isRunning: Boolean, isConnecting: Boolean, onClick: () -
 /* ════════════════════════════ status line ════════════════════════════ */
 
 @Composable
-private fun StatusLine(isRunning: Boolean, isConnecting: Boolean, uptimeSeconds: Long) {
+private fun StatusLine(
+    state: CoreState,
+    uptimeSeconds: Long,
+    phase: ServerPoolManager.Phase,
+) {
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
         Text(
             text = stringResource(
-                when {
-                    isRunning -> R.string.fn_line_protected
-                    isConnecting -> R.string.fn_line_wait
-                    else -> R.string.fn_line_tap
+                when (state) {
+                    CoreState.Offline -> R.string.fn_line_offline
+                    CoreState.Connected -> R.string.fn_line_protected
+                    CoreState.Working -> R.string.fn_line_wait
+                    CoreState.Idle -> R.string.fn_line_tap
                 }
             ),
             style = MaterialTheme.typography.titleMedium,
-            color = MaterialTheme.colorScheme.onSurface,
+            color = if (state == CoreState.Offline) FilternetTokens.Rose
+            else MaterialTheme.colorScheme.onSurface,
+            textAlign = TextAlign.Center,
         )
         Spacer(Modifier.height(3.dp))
         Text(
+            // While hunting we show live progress, which is the difference
+            // between "it froze" and "it is working for me".
             text = when {
-                isRunning -> faDigits(formatUptime(uptimeSeconds))
-                isConnecting -> "HANDSHAKE…"
+                state == CoreState.Connected -> faDigits(formatUptime(uptimeSeconds))
+                phase is ServerPoolManager.Phase.Scanning -> stringResource(
+                    R.string.fn_scan_wave,
+                    faDigits(phase.checked),
+                    faDigits(phase.found),
+                )
+                phase is ServerPoolManager.Phase.Downloading -> stringResource(R.string.fn_gift_downloading)
+                phase is ServerPoolManager.Phase.Failed -> stringResource(
+                    when (phase.reason) {
+                        ServerPoolManager.Reason.NONE_WORKING -> R.string.fn_scan_fail_none
+                        else -> R.string.fn_scan_fail_net
+                    }
+                )
+                state == CoreState.Working -> "HANDSHAKE…"
+                state == CoreState.Offline -> ""
                 else -> "SECURE · PRIVATE · FAST"
             },
             style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.outline,
-            letterSpacing = 1.6.sp,
+            color = if (phase is ServerPoolManager.Phase.Failed) FilternetTokens.Rose
+            else MaterialTheme.colorScheme.outline,
+            letterSpacing = 1.2.sp,
+            textAlign = TextAlign.Center,
+            maxLines = 2,
         )
     }
 }
@@ -484,7 +542,6 @@ private fun SmartConnectButton(isScanning: Boolean, onClick: () -> Unit) {
 private fun CurrentServerCard(
     server: ServerRowUiModel?,
     fallbackName: String?,
-    onClick: () -> Unit,
 ) {
     val name = server?.remarks?.takeIf { it.isNotBlank() }
         ?: fallbackName?.takeIf { it.isNotBlank() }
@@ -495,8 +552,7 @@ private fun CurrentServerCard(
     Surface(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(FilternetTokens.RadiusLarge))
-            .clickable(onClick = onClick),
+            .clip(RoundedCornerShape(FilternetTokens.RadiusLarge)),
         shape = RoundedCornerShape(FilternetTokens.RadiusLarge),
         color = MaterialTheme.colorScheme.surfaceContainer,
         contentColor = MaterialTheme.colorScheme.onSurface,

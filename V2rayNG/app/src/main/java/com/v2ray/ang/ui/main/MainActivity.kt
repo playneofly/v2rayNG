@@ -1,5 +1,6 @@
 package com.v2ray.ang.ui.main
 
+import com.v2ray.ang.handler.ServerPoolManager
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
 import androidx.compose.foundation.layout.height
@@ -174,6 +175,15 @@ class MainActivity : HelperBaseComponentActivity() {
             )
         }
 
+        // FILTERNET: keep the pool list warm so the very first tap on the
+        // connect button does not have to wait for a download.
+        androidx.compose.runtime.LaunchedEffect(Unit) {
+            runCatching { ServerPoolManager.refreshIfStale(applicationContext) }
+        }
+
+        // FILTERNET: nothing is reachable until VPN consent and the notification
+        // permission are granted. The gate closes itself the moment they are.
+        PermissionGate {
         // FILTERNET: brand splash overlay on top of the main screen.
         SplashOverlay {
         MainScreen(
@@ -181,6 +191,7 @@ class MainActivity : HelperBaseComponentActivity() {
             onAction = { action ->
                 when (action) {
                     MainAction.ToggleService -> handleFabAction()
+                    MainAction.AutoConnect -> handleAutoConnect()
                     MainAction.TestCurrentServer -> handleLayoutTestClick()
                     MainAction.ImportQRcode -> importQRcode()
                     MainAction.ImportClipboard -> importClipboard()
@@ -197,6 +208,7 @@ class MainActivity : HelperBaseComponentActivity() {
             },
             onNavigate = { route -> navigateTo(route) },
         )
+        }
         }
     }
 
@@ -255,6 +267,29 @@ class MainActivity : HelperBaseComponentActivity() {
     private fun handleLayoutTestClick() {
         if (mainViewModel.uiState.value.isRunning) {
             mainViewModel.testCurrentServerRealPing()
+        }
+    }
+
+    /**
+     * FILTERNET: the one-button flow.
+     *
+     * The user never picks a server, so the button has to do all of it: make
+     * sure the pool is known, measure it in waves until something answers fast
+     * enough, select the winner and start the tunnel. Everything heavy runs off
+     * the main thread and the UI follows [ServerPoolManager.phase].
+     */
+    private fun handleAutoConnect() {
+        lifecycleScope.launch {
+            val guid = withContext(Dispatchers.IO) {
+                ServerPoolManager.findAndSelect(applicationContext, forceRescan = false)
+            }
+            if (guid == null) {
+                // the sheet/status line already explains why - no extra toast
+                return@launch
+            }
+            mainViewModel.repairSelectedServer()
+            mainViewModel.onAction(MainAction.RefreshGroups)
+            startV2Ray()
         }
     }
 
