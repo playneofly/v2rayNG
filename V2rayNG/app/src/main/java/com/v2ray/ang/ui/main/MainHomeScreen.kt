@@ -104,11 +104,15 @@ internal fun MainHomeScreen(
 
     val busy = pendingConnection ||
         poolPhase is ServerPoolManager.Phase.Downloading ||
-        poolPhase is ServerPoolManager.Phase.Scanning
+        poolPhase is ServerPoolManager.Phase.Scanning ||
+        poolPhase is ServerPoolManager.Phase.Verifying
 
+    // FILTERNET: order matters. While we are still proving a candidate the
+    // service is already running, and showing green there is exactly what made
+    // the app feel like it "connected" without working. Verification wins.
     val coreState = when {
-        isRunning -> CoreState.Connected
         busy -> CoreState.Working
+        isRunning -> CoreState.Connected
         !hasInternet -> CoreState.Offline
         else -> CoreState.Idle
     }
@@ -135,6 +139,16 @@ internal fun MainHomeScreen(
         while (isRunning) {
             delay(1000L)
             uptimeSeconds++
+        }
+    }
+
+    // FILTERNET: the 45 s safety timer used to leave the button amber long after
+    // the hunt had already finished. A verdict clears it immediately.
+    LaunchedEffect(poolPhase) {
+        if (poolPhase is ServerPoolManager.Phase.Ready ||
+            poolPhase is ServerPoolManager.Phase.Failed
+        ) {
+            pendingConnection = false
         }
     }
 
@@ -453,10 +467,16 @@ private fun StatusLine(
                     faDigits(phase.checked),
                     faDigits(phase.found),
                 )
+                phase is ServerPoolManager.Phase.Verifying -> stringResource(
+                    R.string.fn_verify_step,
+                    faDigits(phase.index),
+                    faDigits(phase.total),
+                )
                 phase is ServerPoolManager.Phase.Downloading -> stringResource(R.string.fn_gift_downloading)
                 phase is ServerPoolManager.Phase.Failed -> stringResource(
                     when (phase.reason) {
                         ServerPoolManager.Reason.NONE_WORKING -> R.string.fn_scan_fail_none
+                        ServerPoolManager.Reason.NONE_PASSED -> R.string.fn_scan_fail_passed
                         else -> R.string.fn_scan_fail_net
                     }
                 )

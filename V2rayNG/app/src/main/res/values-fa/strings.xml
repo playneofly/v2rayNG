@@ -676,4 +676,6 @@
     <string name="fn_advanced_on">حالت پیشرفته فعال شد</string>
     <string name="fn_advanced_off">حالت پیشرفته غیرفعال شد</string>
     <string name="fn_advanced_title">حالت پیشرفته</string>
+    <string name="fn_verify_step">آزمایش سرور %1$s از %2$s…</string>
+    <string name="fn_scan_fail_passed">هیچ سروری از آزمایش واقعی رد نشد. دوباره تلاش کنید.</string>
 </resources>

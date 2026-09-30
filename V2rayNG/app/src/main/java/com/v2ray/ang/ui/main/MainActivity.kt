@@ -1,5 +1,6 @@
 package com.v2ray.ang.ui.main
 
+import kotlinx.coroutines.delay
 import com.v2ray.ang.handler.ServerPoolManager
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
@@ -63,6 +64,9 @@ import com.v2ray.ang.util.Utils
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+
+private const val MAX_CONNECT_ATTEMPTS = 5
+private const val TUNNEL_UP_TIMEOUT_MS = 9000L
 
 class MainActivity : HelperBaseComponentActivity() {
 
@@ -271,27 +275,86 @@ class MainActivity : HelperBaseComponentActivity() {
     }
 
     /**
-     * FILTERNET: the one-button flow.
+     * FILTERNET: the one-button flow, with proof.
      *
-     * The user never picks a server, so the button has to do all of it: make
-     * sure the pool is known, measure it in waves until something answers fast
-     * enough, select the winner and start the tunnel. Everything heavy runs off
-     * the main thread and the UI follows [ServerPoolManager.phase].
+     * A TCP handshake is not evidence: most donated configs live behind a CDN
+     * where port 443 answers instantly no matter what you send it. That is why
+     * the app used to go green while nothing actually loaded.
+     *
+     * So every candidate is now *proved*: bring the tunnel up on it, wait for
+     * Android to report a VPN transport, then fetch a real URL through it. Only
+     * a candidate that serves traffic is kept. Anything else is torn down and
+     * the next one is tried.
      */
     private fun handleAutoConnect() {
-        lifecycleScope.launch {
-            val guid = withContext(Dispatchers.IO) {
-                ServerPoolManager.findAndSelect(applicationContext)
+        if (autoConnectJob?.isActive == true) return
+        autoConnectJob = lifecycleScope.launch {
+            try {
+                val candidates = ServerPoolManager.findCandidates(applicationContext)
+                if (candidates.isEmpty()) return@launch
+
+                val attempts = candidates.take(MAX_CONNECT_ATTEMPTS)
+                for ((index, guid) in attempts.withIndex()) {
+                    ServerPoolManager.publishVerifying(index + 1, attempts.size)
+
+                    withContext(Dispatchers.IO) { MmkvManager.setSelectServer(guid) }
+                    mainViewModel.repairSelectedServer()
+                    startV2Ray()
+
+                    if (!awaitTunnelUp()) {
+                        LauncherManager.stopService(this@MainActivity)
+                        delay(600L)
+                        continue
+                    }
+
+                    val works = withContext(Dispatchers.IO) {
+                        ServerPoolManager.verifyThroughTunnel()
+                    }
+                    if (works) {
+                        ServerPoolManager.markGood(guid)
+                        ServerPoolManager.publishConnected()
+                        mainViewModel.onAction(MainAction.RefreshGroups)
+                        return@launch
+                    }
+
+                    // up but dead - drop it and move on
+                    LauncherManager.stopService(this@MainActivity)
+                    delay(800L)
+                }
+                ServerPoolManager.publishNonePassed()
+            } catch (e: Exception) {
+                LogUtil.e(AppConfig.TAG, "AutoConnect failed", e)
+                ServerPoolManager.publishNonePassed()
             }
-            if (guid == null) {
-                // the sheet/status line already explains why - no extra toast
-                return@launch
-            }
-            mainViewModel.repairSelectedServer()
-            mainViewModel.onAction(MainAction.RefreshGroups)
-            startV2Ray()
         }
     }
+
+    /**
+     * Waits until Android reports an active VPN transport, i.e. our tunnel is
+     * really carrying the device's traffic. Returns false if it never comes up.
+     */
+    private suspend fun awaitTunnelUp(): Boolean {
+        val deadline = System.currentTimeMillis() + TUNNEL_UP_TIMEOUT_MS
+        while (System.currentTimeMillis() < deadline) {
+            if (isVpnTransportActive()) {
+                // give the core a moment to finish its own handshake
+                delay(700L)
+                return true
+            }
+            delay(300L)
+        }
+        return false
+    }
+
+    private fun isVpnTransportActive(): Boolean = runCatching {
+        val cm = getSystemService(android.content.Context.CONNECTIVITY_SERVICE)
+            as? android.net.ConnectivityManager ?: return@runCatching false
+        val caps = cm.getNetworkCapabilities(cm.activeNetwork ?: return@runCatching false)
+            ?: return@runCatching false
+        caps.hasTransport(android.net.NetworkCapabilities.TRANSPORT_VPN)
+    }.getOrDefault(false)
+
+    private var autoConnectJob: kotlinx.coroutines.Job? = null
 
     private fun startV2Ray() {
         // FILTERNET: self-healing. The connect button used to do nothing whenever

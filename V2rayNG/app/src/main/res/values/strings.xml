@@ -676,4 +676,6 @@
     <string name="fn_advanced_on">Advanced mode enabled</string>
     <string name="fn_advanced_off">Advanced mode disabled</string>
     <string name="fn_advanced_title">Advanced mode</string>
+    <string name="fn_verify_step">Testing server %1$s of %2$s…</string>
+    <string name="fn_scan_fail_passed">No server passed the real test. Please try again.</string>
 </resources>

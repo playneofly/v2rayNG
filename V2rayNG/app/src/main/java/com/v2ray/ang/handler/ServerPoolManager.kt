@@ -56,7 +56,7 @@ object ServerPoolManager {
     private const val CONNECT_TIMEOUT_MS = 1200
 
     /** How many winners to keep so the next connect is instant. */
-    private const val KEEP = 12
+    private const val KEEP = 16
 
     /** Cache lifetime before the list is refreshed in the background. */
     private const val CACHE_TTL_MS = 6L * 60 * 60 * 1000
@@ -68,11 +68,13 @@ object ServerPoolManager {
         data object Idle : Phase
         data object Downloading : Phase
         data class Scanning(val checked: Int, val found: Int, val wave: Int) : Phase
+        /** Tunnel is up for candidate [index] of [total]; proving it passes traffic. */
+        data class Verifying(val index: Int, val total: Int) : Phase
         data class Ready(val found: Int) : Phase
         data class Failed(val reason: Reason) : Phase
     }
 
-    enum class Reason { NO_INTERNET, EMPTY_LIST, NONE_WORKING }
+    enum class Reason { NO_INTERNET, EMPTY_LIST, NONE_WORKING, NONE_PASSED }
 
     private val _phase = MutableStateFlow<Phase>(Phase.Idle)
     val phase: StateFlow<Phase> = _phase.asStateFlow()
@@ -109,100 +111,7 @@ object ServerPoolManager {
         }
     }
 
-    /**
-     * Finds a working server and leaves it selected, ready to connect.
-     *
-     * Called fresh on every tap of the connect button - there is no other way
-     * to pick a server any more.
-     *
-     * @return the guid to connect to, or null when nothing could be found.
-     */
-    suspend fun findAndSelect(context: Context): String? =
-        withContext(Dispatchers.IO) {
-            if (!running.compareAndSet(false, true)) return@withContext null
-            try {
-                // ---- fast path -------------------------------------------------
-                // Every tap really does go looking again: the servers that worked
-                // last time are re-measured right now, and only a server that
-                // answers *at this moment* is accepted. Nothing stale is reused.
-                // It is simply a much smaller search, so it usually finishes in a
-                // second or two instead of five.
-                _phase.value = Phase.Scanning(checked = 0, found = 0, wave = 0)
-                val known = knownGoodGuid()
-                if (known != null) {
-                    MmkvManager.setSelectServer(known)
-                    _phase.value = Phase.Ready(1)
-                    return@withContext known
-                }
-
-                _phase.value = Phase.Downloading
-                val raw = cachedOrDownload(context)
-                if (raw.isNullOrBlank()) {
-                    _phase.value = Phase.Failed(Reason.NO_INTERNET)
-                    return@withContext null
-                }
-
-                val entries = parse(raw)
-                LogUtil.i(AppConfig.TAG, "ServerPool: ${entries.size} links in the pool")
-                if (entries.isEmpty()) {
-                    _phase.value = Phase.Failed(Reason.EMPTY_LIST)
-                    return@withContext null
-                }
-
-                // ---- wave scan, no cap on how far we go ----------------------
-                val checked = AtomicInteger(0)
-                var wave = 0
-                var offset = 0
-                while (offset < entries.size) {
-                    wave++
-                    val slice = entries.subList(offset, minOf(offset + WAVE_SIZE, entries.size))
-                    offset += WAVE_SIZE
-                    val winners = probeWave(slice, checked, wave)
-                    if (winners.isNotEmpty()) {
-                        val guid = importWinners(winners)
-                        if (guid != null) {
-                            _phase.value = Phase.Ready(winners.size)
-                            return@withContext guid
-                        }
-                    }
-                }
-
-                _phase.value = Phase.Failed(Reason.NONE_WORKING)
-                null
-            } catch (e: Exception) {
-                LogUtil.e(AppConfig.TAG, "ServerPool: scan failed", e)
-                _phase.value = Phase.Failed(Reason.NO_INTERNET)
-                null
-            } finally {
-                running.set(false)
-            }
-        }
-
     /* ─────────────────────────── internals ─────────────────────────── */
-
-    /** A previously imported profile that still answers straight away. */
-    private fun knownGoodGuid(): String? {
-        val guids = runCatching { MmkvManager.decodeServerList(POOL_SUB_ID) }.getOrNull().orEmpty()
-        if (guids.isEmpty()) return null
-        // fastest first, so reconnects land on the best known server
-        val ordered = guids.sortedBy {
-            val d = MmkvManager.decodeServerAffiliationInfo(it)?.testDelayMillis ?: Long.MAX_VALUE
-            if (d <= 0L) Long.MAX_VALUE else d
-        }
-        for (guid in ordered.take(4)) {
-            val p = MmkvManager.decodeServerConfig(guid) ?: continue
-            val host = p.server ?: continue
-            val port = p.serverPort?.toIntOrNull() ?: continue
-            val delay = runCatching {
-                SpeedtestManager.socketConnectTime(host, port, CONNECT_TIMEOUT_MS)
-            }.getOrDefault(-1L)
-            if (delay in 1..MAX_PING_MS) {
-                MmkvManager.encodeServerTestDelayMillis(guid, delay)
-                return guid
-            }
-        }
-        return null
-    }
 
     private fun cachedOrDownload(context: Context): String? {
         val cache = File(context.filesDir, CACHE_FILE)
@@ -254,8 +163,11 @@ object ServerPoolManager {
             if (l.isEmpty() || l.startsWith("#") || l.startsWith("//")) continue
             if (!l.contains("://")) continue
             val ep = endpointOf(l) ?: continue
-            val key = "${ep.first}:${ep.second}"
-            if (!seen.add(key)) continue
+            // FILTERNET: de-duplicate on the WHOLE link, never on host:port.
+            // CDN based configs (Cloudflare and friends) all share a handful of
+            // IPs on 443 while differing in SNI, host header and path - keying on
+            // the endpoint silently threw most of the pool away.
+            if (!seen.add(l)) continue
             out.add(PoolEntry(l, ep.first, ep.second))
         }
         return out
@@ -328,33 +240,6 @@ object ServerPoolManager {
         return results.sortedBy { it.second }
     }
 
-    /**
-     * Imports the winners, replacing whatever the previous batch was, and
-     * returns the guid of the fastest one.
-     */
-    private fun importWinners(winners: List<Pair<PoolEntry, Long>>): String? {
-        ensureGroupExists()
-        MmkvManager.removeServerViaSubid(POOL_SUB_ID)
-        val payload = winners.take(KEEP).joinToString("\n") { it.first.raw }
-        AngConfigManager.importBatchConfig(payload, POOL_SUB_ID, false)
-
-        val guids = MmkvManager.decodeServerList(POOL_SUB_ID)
-        if (guids.isEmpty()) return null
-
-        // carry the measured delay across so the UI has something to show
-        val byEndpoint = winners.associate { "${it.first.host}:${it.first.port}" to it.second }
-        var best: Pair<String, Long>? = null
-        for (guid in guids) {
-            val p = MmkvManager.decodeServerConfig(guid) ?: continue
-            val delay = byEndpoint["${p.server}:${p.serverPort}"] ?: continue
-            MmkvManager.encodeServerTestDelayMillis(guid, delay)
-            if (best == null || delay < best!!.second) best = guid to delay
-        }
-        val chosen = best?.first ?: guids.first()
-        MmkvManager.setSelectServer(chosen)
-        return chosen
-    }
-
     private fun ensureGroupExists() {
         val existing = runCatching { MmkvManager.decodeSubscriptions() }.getOrDefault(emptyList())
         if (existing.any { it.guid == POOL_SUB_ID }) return
@@ -362,5 +247,130 @@ object ServerPoolManager {
             POOL_SUB_ID,
             SubscriptionItem(remarks = POOL_REMARKS, url = "", enabled = false, autoUpdate = false),
         )
+    }
+
+    /* ══════════════════ candidates & real verification ══════════════════ */
+
+    /**
+     * FILTERNET: a TCP handshake proves almost nothing for this kind of pool.
+     *
+     * Most donated configs sit behind a CDN, so port 443 on those IPs answers
+     * instantly *whatever* you send it - every server looks perfect and the app
+     * happily "connected" to dead configs. That is why the button felt fake.
+     *
+     * So the flow is now two stages: this returns an ordered short-list, and the
+     * caller brings the tunnel up on each one and proves it with real traffic
+     * via [verifyThroughTunnel] before declaring success.
+     *
+     * @return guids to try, best first. Empty when nothing could be prepared.
+     */
+    suspend fun findCandidates(context: Context): List<String> = withContext(Dispatchers.IO) {
+        if (!running.compareAndSet(false, true)) return@withContext emptyList()
+        try {
+            _phase.value = Phase.Downloading
+            val raw = cachedOrDownload(context)
+            if (raw.isNullOrBlank()) {
+                _phase.value = Phase.Failed(Reason.NO_INTERNET)
+                return@withContext emptyList()
+            }
+
+            val entries = parse(raw)
+            LogUtil.i(AppConfig.TAG, "ServerPool: ${entries.size} links in the pool")
+            if (entries.isEmpty()) {
+                _phase.value = Phase.Failed(Reason.EMPTY_LIST)
+                return@withContext emptyList()
+            }
+
+            val checked = AtomicInteger(0)
+            var wave = 0
+            var offset = 0
+            while (offset < entries.size) {
+                wave++
+                val slice = entries.subList(offset, minOf(offset + WAVE_SIZE, entries.size))
+                offset += WAVE_SIZE
+                val winners = probeWave(slice, checked, wave)
+                if (winners.isNotEmpty()) {
+                    val guids = importAll(winners)
+                    if (guids.isNotEmpty()) return@withContext guids
+                }
+            }
+            _phase.value = Phase.Failed(Reason.NONE_WORKING)
+            emptyList()
+        } catch (e: Exception) {
+            LogUtil.e(AppConfig.TAG, "ServerPool: candidate search failed", e)
+            _phase.value = Phase.Failed(Reason.NO_INTERNET)
+            emptyList()
+        } finally {
+            running.set(false)
+        }
+    }
+
+    fun publishVerifying(index: Int, total: Int) {
+        _phase.value = Phase.Verifying(index, total)
+    }
+
+    fun publishConnected() {
+        _phase.value = Phase.Ready(1)
+    }
+
+    fun publishNonePassed() {
+        _phase.value = Phase.Failed(Reason.NONE_PASSED)
+    }
+
+    /**
+     * True when the tunnel that is currently up actually carries traffic.
+     *
+     * Runs from the UI process, so the request goes through the VpnService like
+     * any other app traffic - if this succeeds the user really is online.
+     */
+    fun verifyThroughTunnel(): Boolean {
+        for (url in VERIFY_URLS) {
+            val body = runCatching {
+                HttpUtil.getUrlContent(UrlContentRequest(url = url, timeout = VERIFY_TIMEOUT_MS))
+            }.getOrNull()
+            if (body != null) return true
+        }
+        return false
+    }
+
+    private val VERIFY_URLS = listOf(
+        "https://www.gstatic.com/generate_204",
+        "https://cp.cloudflare.com/generate_204",
+        "https://api.ipify.org",
+    )
+    private const val VERIFY_TIMEOUT_MS = 5000
+
+    /** Remembers a guid that really passed traffic, so it is tried first later. */
+    fun markGood(guid: String) {
+        runCatching { MmkvManager.encodeSettings(KEY_LAST_GOOD, guid) }
+    }
+
+    fun lastGoodGuid(): String? =
+        runCatching { MmkvManager.decodeSettingsString(KEY_LAST_GOOD) }.getOrNull()
+            ?.takeIf { it.isNotBlank() && MmkvManager.decodeServerConfig(it) != null }
+
+    private const val KEY_LAST_GOOD = "filternet_last_good_guid"
+
+    /** Imports every winner of a wave and returns their guids, fastest first. */
+    private fun importAll(winners: List<Pair<PoolEntry, Long>>): List<String> {
+        ensureGroupExists()
+        MmkvManager.removeServerViaSubid(POOL_SUB_ID)
+        val payload = winners.take(KEEP).joinToString("\n") { it.first.raw }
+        AngConfigManager.importBatchConfig(payload, POOL_SUB_ID, false)
+
+        val guids = MmkvManager.decodeServerList(POOL_SUB_ID)
+        if (guids.isEmpty()) return emptyList()
+
+        val byEndpoint = winners.associate { "${it.first.host}:${it.first.port}" to it.second }
+        val scored = guids.mapNotNull { guid ->
+            val p = MmkvManager.decodeServerConfig(guid) ?: return@mapNotNull null
+            val delay = byEndpoint["${p.server}:${p.serverPort}"] ?: 9999L
+            MmkvManager.encodeServerTestDelayMillis(guid, delay)
+            guid to delay
+        }
+        // the one that genuinely worked last time gets first refusal
+        val last = lastGoodGuid()
+        return scored.sortedBy { it.second }.map { it.first }
+            .sortedByDescending { it == last }
     }
 }
