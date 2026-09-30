@@ -209,6 +209,7 @@ fun MainScreen(
                         MainRootTab.Home -> MainHomeScreen(
                             displayText = displayText,
                             isRunning = uiState.isRunning,
+                            isMeasuring = uiState.isFindingBest || uiState.isTesting,
                             onToggleService = { onAction(MainAction.ToggleService) },
                             onTestCurrent = { onAction(MainAction.TestCurrentServer) },
                             onAutoConnect = { onAction(MainAction.AutoConnect) },

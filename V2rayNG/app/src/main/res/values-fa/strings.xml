@@ -566,8 +566,8 @@
     <string name="fn_btn_sort">مرتب‌سازی بر اساس نتیجه</string>
     <string name="fn_btn_best">بهترین</string>
     <string name="fn_best_searching">در حال یافتن بهترین سرور…</string>
-    <string name="fn_best_found">به بهترین سرور وصل شد: %1$s (%2$d میلی‌ثانیه)</string>
-    <string name="fn_best_none">سرور سالمی پیدا نشد</string>
+    <string name="fn_best_found">وصل شد · پینگ %1$d میلی‌ثانیه</string>
+    <string name="fn_best_none">سرور سالمی پیدا نشد. دوباره تلاش کنید.</string>
     <string name="fn_speed_down">دانلود</string>
     <string name="fn_speed_up">آپلود</string>
     <string name="fn_traffic_title">آمار مصرف</string>
@@ -678,4 +678,5 @@
     <string name="fn_advanced_title">حالت پیشرفته</string>
     <string name="fn_verify_step">آزمایش سرور %1$s از %2$s…</string>
     <string name="fn_scan_fail_passed">هیچ سروری از آزمایش واقعی رد نشد. دوباره تلاش کنید.</string>
+    <string name="fn_measuring">در حال آزمایش واقعی سرورها…</string>
 </resources>

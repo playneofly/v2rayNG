@@ -566,8 +566,8 @@
     <string name="fn_btn_sort">Sort by results</string>
     <string name="fn_btn_best">Best</string>
     <string name="fn_best_searching">Finding the best server…</string>
-    <string name="fn_best_found">Connected to best server: %1$s (%2$d ms)</string>
-    <string name="fn_best_none">No working server found</string>
+    <string name="fn_best_found">Connected · ping %1$d ms</string>
+    <string name="fn_best_none">No working server found. Please try again.</string>
     <string name="fn_speed_down">Down</string>
     <string name="fn_speed_up">Up</string>
     <string name="fn_traffic_title">Traffic statistics</string>
@@ -678,4 +678,5 @@
     <string name="fn_advanced_title">Advanced mode</string>
     <string name="fn_verify_step">Testing server %1$s of %2$s…</string>
     <string name="fn_scan_fail_passed">No server passed the real test. Please try again.</string>
+    <string name="fn_measuring">Testing servers for real…</string>
 </resources>

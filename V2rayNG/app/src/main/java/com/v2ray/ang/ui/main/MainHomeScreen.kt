@@ -89,6 +89,7 @@ import kotlin.math.max
 internal fun MainHomeScreen(
     displayText: String,
     isRunning: Boolean,
+    isMeasuring: Boolean,
     onToggleService: () -> Unit,
     onTestCurrent: () -> Unit,
     onAutoConnect: () -> Unit,
@@ -102,10 +103,13 @@ internal fun MainHomeScreen(
     val hasInternet by rememberHasInternet()
     val poolPhase by ServerPoolManager.phase.collectAsStateWithLifecycle()
 
+    // FILTERNET: amber until the whole hunt is over - screening, the core's real
+    // measurement, and the single tunnel start. Never green half way through.
     val busy = pendingConnection ||
+        isMeasuring ||
         poolPhase is ServerPoolManager.Phase.Downloading ||
         poolPhase is ServerPoolManager.Phase.Scanning ||
-        poolPhase is ServerPoolManager.Phase.Verifying
+        poolPhase is ServerPoolManager.Phase.Measuring
 
     // FILTERNET: order matters. While we are still proving a candidate the
     // service is already running, and showing green there is exactly what made
@@ -142,11 +146,13 @@ internal fun MainHomeScreen(
         }
     }
 
-    // FILTERNET: the 45 s safety timer used to leave the button amber long after
-    // the hunt had already finished. A verdict clears it immediately.
-    LaunchedEffect(poolPhase) {
-        if (poolPhase is ServerPoolManager.Phase.Ready ||
-            poolPhase is ServerPoolManager.Phase.Failed
+    // FILTERNET: the short-lived "I just tapped" flag only has to cover the gap
+    // before the real flow reports in. Anything conclusive clears it at once.
+    LaunchedEffect(poolPhase, isMeasuring, isRunning) {
+        if (isRunning ||
+            isMeasuring ||
+            poolPhase is ServerPoolManager.Phase.Failed ||
+            poolPhase is ServerPoolManager.Phase.Ready
         ) {
             pendingConnection = false
         }
@@ -186,7 +192,7 @@ internal fun MainHomeScreen(
                 pendingConnection = true
                 onAutoConnect()
                 scope.launch {
-                    delay(45000L)
+                    delay(8000L)
                     pendingConnection = false
                 }
             },
@@ -198,6 +204,7 @@ internal fun MainHomeScreen(
             state = coreState,
             uptimeSeconds = uptimeSeconds,
             phase = poolPhase,
+            isMeasuring = isMeasuring,
         )
 
         Spacer(Modifier.height(18.dp))
@@ -440,6 +447,7 @@ private fun StatusLine(
     state: CoreState,
     uptimeSeconds: Long,
     phase: ServerPoolManager.Phase,
+    isMeasuring: Boolean,
 ) {
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
         Text(
@@ -467,11 +475,7 @@ private fun StatusLine(
                     faDigits(phase.checked),
                     faDigits(phase.found),
                 )
-                phase is ServerPoolManager.Phase.Verifying -> stringResource(
-                    R.string.fn_verify_step,
-                    faDigits(phase.index),
-                    faDigits(phase.total),
-                )
+                phase is ServerPoolManager.Phase.Measuring -> stringResource(R.string.fn_measuring)
                 phase is ServerPoolManager.Phase.Downloading -> stringResource(R.string.fn_gift_downloading)
                 phase is ServerPoolManager.Phase.Failed -> stringResource(
                     when (phase.reason) {
@@ -480,6 +484,7 @@ private fun StatusLine(
                         else -> R.string.fn_scan_fail_net
                     }
                 )
+                isMeasuring -> stringResource(R.string.fn_measuring)
                 state == CoreState.Working -> "HANDSHAKE…"
                 state == CoreState.Offline -> ""
                 else -> "SECURE · PRIVATE · FAST"

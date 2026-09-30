@@ -56,7 +56,14 @@ object ServerPoolManager {
     private const val CONNECT_TIMEOUT_MS = 1200
 
     /** How many winners to keep so the next connect is instant. */
-    private const val KEEP = 16
+    /** How many links the core really measures per attempt. */
+    private const val KEEP = 20
+
+    /** Pools at or below this size skip the handshake screen completely. */
+    private const val SCREEN_THRESHOLD = 150
+
+    /** Upper bound on screening waves so a huge pool cannot stall the tap. */
+    private const val MAX_WAVES = 12
 
     /** Cache lifetime before the list is refreshed in the background. */
     private const val CACHE_TTL_MS = 6L * 60 * 60 * 1000
@@ -68,8 +75,8 @@ object ServerPoolManager {
         data object Idle : Phase
         data object Downloading : Phase
         data class Scanning(val checked: Int, val found: Int, val wave: Int) : Phase
-        /** Tunnel is up for candidate [index] of [total]; proving it passes traffic. */
-        data class Verifying(val index: Int, val total: Int) : Phase
+        /** Candidates are imported; the core is measuring them for real. */
+        data object Measuring : Phase
         data class Ready(val found: Int) : Phase
         data class Failed(val reason: Reason) : Phase
     }
@@ -173,7 +180,22 @@ object ServerPoolManager {
         return out
     }
 
-    private val HOST_PORT = Regex("""@\[?([^\[\]/?#@]+?)]?:(\d{1,5})""")
+    /**
+     * FILTERNET: matches "@host:port" at the end of a share link.
+     *
+     * The bracketed IPv6 branch is not decoration - the previous pattern used a
+     * lazy character class and happily turned "@[2606:4700::1111]:8443" into
+     * host "2606" on port 4700, i.e. it silently measured a made-up endpoint.
+     */
+    private val HOST_PORT = Regex("""@(?:\[([^\[\]]+)]|([^/?#@:]+)):(\d{1,5})""")
+
+    private fun matchEndpoint(text: String): Pair<String, Int>? {
+        val m = HOST_PORT.find(text) ?: return null
+        val host = m.groupValues[1].ifEmpty { m.groupValues[2] }
+        val port = m.groupValues[3].toIntOrNull() ?: return null
+        if (host.isBlank() || port !in 1..65535) return null
+        return host to port
+    }
 
     /**
      * Pulls host and port out of a share link textually. Far cheaper than
@@ -188,21 +210,14 @@ object ServerPoolManager {
             val port = o.optString("port").toIntOrNull() ?: return@runCatching null
             return@runCatching host to port
         }
-        HOST_PORT.find(link)?.let { m ->
-            val host = m.groupValues[1]
-            val port = m.groupValues[2].toIntOrNull() ?: return@runCatching null
-            if (host.isBlank() || port !in 1..65535) return@runCatching null
-            return@runCatching host to port
-        }
+        matchEndpoint(link)?.let { return@runCatching it }
         // ss:// links sometimes hide the endpoint inside the base64 blob
         if (link.startsWith("ss://", ignoreCase = true)) {
             val payload = link.substringAfter("://").substringBefore("#").substringBefore("?")
             val decoded = runCatching {
                 String(Base64.decode(payload, Base64.DEFAULT or Base64.NO_WRAP))
             }.getOrNull() ?: return@runCatching null
-            HOST_PORT.find("@$decoded")?.let { m ->
-                return@runCatching m.groupValues[1] to (m.groupValues[2].toIntOrNull() ?: return@runCatching null)
-            }
+            matchEndpoint("@$decoded")?.let { return@runCatching it }
         }
         val uri = runCatching { URI(link) }.getOrNull() ?: return@runCatching null
         val host = uri.host ?: return@runCatching null
@@ -252,62 +267,119 @@ object ServerPoolManager {
     /* ══════════════════ candidates & real verification ══════════════════ */
 
     /**
-     * FILTERNET: a TCP handshake proves almost nothing for this kind of pool.
+     * FILTERNET: builds the short-list that the core will really measure.
      *
-     * Most donated configs sit behind a CDN, so port 443 on those IPs answers
-     * instantly *whatever* you send it - every server looks perfect and the app
-     * happily "connected" to dead configs. That is why the button felt fake.
+     * Two hard lessons are baked into this method.
      *
-     * So the flow is now two stages: this returns an ordered short-list, and the
-     * caller brings the tunnel up on each one and proves it with real traffic
-     * via [verifyThroughTunnel] before declaring success.
+     * 1. A TCP handshake proves almost nothing here. Most donated configs sit
+     *    behind a CDN, so port 443 answers whatever you send it - dead configs
+     *    look perfect. Only the core's own delay test can tell them apart.
      *
-     * @return guids to try, best first. Empty when nothing could be prepared.
+     * 2. Worse, a TCP screen must NEVER be a gate. Measured against this very
+     *    pool, a short network hiccup made every single endpoint fail the
+     *    handshake while eleven of them were serving traffic perfectly. Had the
+     *    screen been allowed to veto, the app would have announced "no server
+     *    found" while sitting on a pile of working servers.
+     *
+     * So screening is only ever used to ORDER the list, never to shrink it below
+     * [KEEP]. Whatever the handshake thinks, the real measurement still gets a
+     * full short-list to work with.
      */
-    suspend fun findCandidates(context: Context): List<String> = withContext(Dispatchers.IO) {
-        if (!running.compareAndSet(false, true)) return@withContext emptyList()
+    suspend fun prepareCandidates(context: Context): Boolean = withContext(Dispatchers.IO) {
+        if (!running.compareAndSet(false, true)) return@withContext false
         try {
             _phase.value = Phase.Downloading
             val raw = cachedOrDownload(context)
             if (raw.isNullOrBlank()) {
                 _phase.value = Phase.Failed(Reason.NO_INTERNET)
-                return@withContext emptyList()
+                return@withContext false
             }
 
             val entries = parse(raw)
             LogUtil.i(AppConfig.TAG, "ServerPool: ${entries.size} links in the pool")
             if (entries.isEmpty()) {
                 _phase.value = Phase.Failed(Reason.EMPTY_LIST)
-                return@withContext emptyList()
+                return@withContext false
             }
 
-            val checked = AtomicInteger(0)
-            var wave = 0
-            var offset = 0
-            while (offset < entries.size) {
-                wave++
-                val slice = entries.subList(offset, minOf(offset + WAVE_SIZE, entries.size))
-                offset += WAVE_SIZE
-                val winners = probeWave(slice, checked, wave)
-                if (winners.isNotEmpty()) {
-                    val guids = importAll(winners)
-                    if (guids.isNotEmpty()) return@withContext guids
-                }
+            // Rotate the starting point so repeated taps explore a big pool
+            // instead of hammering the same hundred links every time.
+            val start = nextOffset(entries.size)
+            val rotated = if (start == 0) entries else entries.drop(start) + entries.take(start)
+
+            val shortList = buildShortList(rotated)
+            if (shortList.isEmpty()) {
+                _phase.value = Phase.Failed(Reason.EMPTY_LIST)
+                return@withContext false
             }
-            _phase.value = Phase.Failed(Reason.NONE_WORKING)
-            emptyList()
+
+            val guids = importAll(shortList)
+            if (guids.isEmpty()) {
+                _phase.value = Phase.Failed(Reason.NONE_WORKING)
+                return@withContext false
+            }
+            _phase.value = Phase.Measuring
+            true
         } catch (e: Exception) {
             LogUtil.e(AppConfig.TAG, "ServerPool: candidate search failed", e)
             _phase.value = Phase.Failed(Reason.NO_INTERNET)
-            emptyList()
+            false
         } finally {
             running.set(false)
         }
     }
 
-    fun publishVerifying(index: Int, total: Int) {
-        _phase.value = Phase.Verifying(index, total)
+    /**
+     * Picks [KEEP] links to hand to the real measurement.
+     *
+     * Small pools skip the handshake entirely - measuring twenty configs for
+     * real is cheap and infinitely more accurate. Big pools get screened first
+     * purely so the most promising links float to the top, and the list is then
+     * topped up with unscreened ones so it is always full.
+     */
+    private suspend fun buildShortList(entries: List<PoolEntry>): List<Pair<PoolEntry, Long>> {
+        if (entries.size <= SCREEN_THRESHOLD) {
+            return entries.take(KEEP).map { it to 0L }
+        }
+
+        val checked = AtomicInteger(0)
+        val ordered = ArrayList<Pair<PoolEntry, Long>>()
+        val usedRaw = HashSet<String>()
+
+        var wave = 0
+        var offset = 0
+        while (offset < entries.size && ordered.size < KEEP && wave < MAX_WAVES) {
+            wave++
+            val slice = entries.subList(offset, minOf(offset + WAVE_SIZE, entries.size))
+            offset += WAVE_SIZE
+            for ((entry, delay) in probeWave(slice, checked, wave)) {
+                if (usedRaw.add(entry.raw)) ordered.add(entry to delay)
+                if (ordered.size >= KEEP) break
+            }
+        }
+
+        // Never let the handshake starve the real test.
+        if (ordered.size < KEEP) {
+            for (entry in entries) {
+                if (ordered.size >= KEEP) break
+                if (usedRaw.add(entry.raw)) ordered.add(entry to 0L)
+            }
+        }
+        return ordered
     }
+
+    /** Where to start scanning next time, so a large pool is explored evenly. */
+    private fun nextOffset(total: Int): Int {
+        if (total <= KEEP) return 0
+        val prev = runCatching {
+            MmkvManager.decodeSettingsString(KEY_OFFSET)?.toIntOrNull()
+        }.getOrNull() ?: 0
+        val next = (prev + KEEP) % total
+        runCatching { MmkvManager.encodeSettings(KEY_OFFSET, next.toString()) }
+        return prev % total
+    }
+
+    private const val KEY_OFFSET = "filternet_pool_offset"
 
     fun publishConnected() {
         _phase.value = Phase.Ready(1)
@@ -316,29 +388,6 @@ object ServerPoolManager {
     fun publishNonePassed() {
         _phase.value = Phase.Failed(Reason.NONE_PASSED)
     }
-
-    /**
-     * True when the tunnel that is currently up actually carries traffic.
-     *
-     * Runs from the UI process, so the request goes through the VpnService like
-     * any other app traffic - if this succeeds the user really is online.
-     */
-    fun verifyThroughTunnel(): Boolean {
-        for (url in VERIFY_URLS) {
-            val body = runCatching {
-                HttpUtil.getUrlContent(UrlContentRequest(url = url, timeout = VERIFY_TIMEOUT_MS))
-            }.getOrNull()
-            if (body != null) return true
-        }
-        return false
-    }
-
-    private val VERIFY_URLS = listOf(
-        "https://www.gstatic.com/generate_204",
-        "https://cp.cloudflare.com/generate_204",
-        "https://api.ipify.org",
-    )
-    private const val VERIFY_TIMEOUT_MS = 5000
 
     /** Remembers a guid that really passed traffic, so it is tried first later. */
     fun markGood(guid: String) {

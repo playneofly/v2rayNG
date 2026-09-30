@@ -41,6 +41,16 @@ object AutoTestScheduler {
     @Volatile
     private var consecutiveFailures = 0
 
+    /**
+     * FILTERNET: hard floor between two automatic switches. Without it a bad
+     * patch of network makes the worker restart the tunnel again and again,
+     * which the user experiences as the connection flapping on and off.
+     */
+    private const val SWITCH_COOLDOWN_MS = 15L * 60 * 1000
+
+    @Volatile
+    private var lastSwitchAt = 0L
+
     fun isEnabled(): Boolean =
         MmkvManager.decodeSettingsBool(AppConfig.PREF_FN_AUTO_TEST_ENABLED, false)
 
@@ -112,9 +122,16 @@ object AutoTestScheduler {
          * Simple reachability probe through the active tunnel.
          */
         private fun probe(): Boolean = try {
-            val url = java.net.URL(SettingsManager.getDelayTestUrl())
-            val port = if (url.protocol == "https") 443 else 80
-            SpeedtestManager.socketConnectTime(url.host, port, 4000) >= 0
+            // FILTERNET: a TCP handshake proves nothing - CDN endpoints answer on
+            // 443 whatever you send them. Only a real response counts, otherwise
+            // this worker "heals" a perfectly good connection and the user sees
+            // the tunnel drop for no reason.
+            com.v2ray.ang.util.HttpUtil.getUrlContent(
+                com.v2ray.ang.dto.UrlContentRequest(
+                    url = "https://www.gstatic.com/generate_204",
+                    timeout = 6000,
+                )
+            ) != null
         } catch (e: Exception) {
             LogUtil.e(AppConfig.TAG, "AutoTestScheduler probe error", e)
             false
@@ -125,6 +142,12 @@ object AutoTestScheduler {
          */
         private fun switchToBestServer() {
             try {
+                val now = System.currentTimeMillis()
+                if (now - lastSwitchAt < SWITCH_COOLDOWN_MS) {
+                    LogUtil.i(AppConfig.TAG, "AutoTestScheduler: switch suppressed by cooldown")
+                    return
+                }
+                lastSwitchAt = now
                 val current = MmkvManager.getSelectServer()
                 val candidate = MmkvManager.decodeAllServerList()
                     .filter { it != current }

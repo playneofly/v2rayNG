@@ -958,6 +958,10 @@ class MainViewModel(
      * time it is pressed) and then connects to the lowest-latency one.
      */
     fun connectBestServer() {
+        // FILTERNET: pressing the button again while a hunt is already running
+        // used to queue a second bulk test on top of the first, which is how the
+        // app ended up starting and stopping the tunnel over and over.
+        if (uiState.value.isFindingBest || uiState.value.isTesting) return
         val allGuids = MmkvManager.decodeAllServerList()
         if (allGuids.isEmpty()) {
             toastError(R.string.fn_best_none)
@@ -1029,7 +1033,8 @@ class MainViewModel(
             }
 
             updateSelectedGuid(guid)
-            toastSuccess(getString(R.string.fn_best_found, profile.remarks, delay.toInt()))
+            // FILTERNET: no server names anywhere in the UI any more.
+            toastSuccess(getString(R.string.fn_best_found, delay.toInt()))
             onBestServerPicked?.invoke(guid)
         }
     }
