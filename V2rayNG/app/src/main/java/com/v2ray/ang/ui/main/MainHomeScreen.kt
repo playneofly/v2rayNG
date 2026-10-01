@@ -1,6 +1,7 @@
 package com.v2ray.ang.ui.main
 
 import com.v2ray.ang.handler.SessionStatsManager
+import com.v2ray.ang.handler.FilternetMode
 import com.v2ray.ang.handler.NetworkDiagnostics
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.v2ray.ang.handler.ServerPoolManager
@@ -156,12 +157,16 @@ internal fun MainHomeScreen(
 
     // FILTERNET: the short-lived "I just tapped" flag only has to cover the gap
     // before the real flow reports in. Anything conclusive clears it at once.
-    LaunchedEffect(poolPhase, isMeasuring, isRunning) {
-        if (isRunning ||
-            isMeasuring ||
-            poolPhase is ServerPoolManager.Phase.Failed ||
-            poolPhase is ServerPoolManager.Phase.Ready
-        ) {
+    // FILTERNET: the latch comes off on a verdict, not on progress.
+    //
+    // Ready and Measuring used to drop it too. Ready means "candidates are
+    // picked", which is the middle of the job, not the end - and it is not
+    // one of the phases counted as busy below. So the orb went dark for the
+    // moment between Ready and the core actually starting to measure, which
+    // is the blink the user sees right after tapping connect. Only a live
+    // tunnel or an outright failure ends the wait.
+    LaunchedEffect(poolPhase, isRunning) {
+        if (isRunning || poolPhase is ServerPoolManager.Phase.Failed) {
             pendingConnection = false
         }
     }
@@ -226,6 +231,16 @@ internal fun MainHomeScreen(
         }
     }
 
+    // FILTERNET: the private tab is holding the tunnel. There is only one, so
+    // this tab has nothing to offer until it is handed back - and showing a
+    // live connect orb here would be a lie about which profile is carrying
+    // the traffic.
+    val tunnelOwner by FilternetMode.owner.collectAsStateWithLifecycle()
+    if (isRunning && tunnelOwner == FilternetMode.Owner.INTERNAL) {
+        InternalModeHoldsTunnel()
+        return
+    }
+
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -267,12 +282,17 @@ internal fun MainHomeScreen(
                     coreState == CoreState.Offline -> Unit
 
                     else -> {
+                        // FILTERNET: this latch used to be released by a blind
+                        // delay(8000). The hunt regularly runs longer than that,
+                        // and the pool phases are not continuous - there is a
+                        // gap between Downloading ending and Measuring starting.
+                        // When the timer fired inside one of those gaps nothing
+                        // was holding amber, so the orb dropped to Idle for a
+                        // frame and then lit up again: the flicker. The latch
+                        // now stays until the tunnel is actually up, the user
+                        // cancels, or the pool reports a real failure.
                         pendingConnection = true
                         onAutoConnect()
-                        scope.launch {
-                            delay(8000L)
-                            pendingConnection = false
-                        }
                     }
                 }
             },
@@ -337,6 +357,62 @@ internal fun MainHomeScreen(
 
     receipt?.let { s ->
         SessionReceiptSheet(session = s, onDismiss = { receipt = null })
+    }
+}
+
+/* ═══════════════════ the private tab is holding the tunnel ═══════════════════ */
+
+/**
+ * FILTERNET: what the home tab shows while the private tab owns the tunnel.
+ *
+ * Deliberately a dead end - no connect button, no disconnect button. The only
+ * way out is back to the tab that started it, so there is never a question
+ * about which one is in charge.
+ */
+@Composable
+private fun InternalModeHoldsTunnel() {
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(horizontal = 28.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center,
+    ) {
+        Surface(
+            modifier = Modifier.size(108.dp),
+            shape = CircleShape,
+            color = FilternetTokens.Mint.copy(alpha = 0.12f),
+            border = androidx.compose.foundation.BorderStroke(
+                1.dp, FilternetTokens.Mint.copy(alpha = 0.45f),
+            ),
+        ) {
+            Box(contentAlignment = Alignment.Center) {
+                Icon(
+                    painter = painterResource(R.drawable.ic_lock_24dp),
+                    contentDescription = null,
+                    modifier = Modifier.size(38.dp),
+                    tint = FilternetTokens.Mint,
+                )
+            }
+        }
+
+        Spacer(Modifier.height(22.dp))
+
+        Text(
+            text = stringResource(R.string.fn_internal_holds_title),
+            style = MaterialTheme.typography.titleMedium,
+            color = MaterialTheme.colorScheme.onSurface,
+            textAlign = TextAlign.Center,
+        )
+
+        Spacer(Modifier.height(8.dp))
+
+        Text(
+            text = stringResource(R.string.fn_internal_holds_sub),
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            textAlign = TextAlign.Center,
+        )
     }
 }
 

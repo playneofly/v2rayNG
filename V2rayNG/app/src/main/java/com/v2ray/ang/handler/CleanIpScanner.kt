@@ -47,6 +47,24 @@ object CleanIpScanner {
     /** How many survivors make up one batch handed to the core. */
     private const val BATCH = 12
 
+    /**
+     * Once the seeds have all been tried, waiting for a full [BATCH] is just
+     * stalling: the seeds are the addresses most likely to work, and holding
+     * three good ones hostage until the random sweep coughs up nine more was
+     * what made the hunt feel dead for the first half-minute.
+     */
+    private const val MIN_BATCH = 3
+
+    /** ...and never sit on survivors longer than this, however few there are. */
+    private const val DRAIN_AFTER_MS = 2_500L
+
+    /**
+     * The UI cannot use sixty updates a second and Compose should not be asked
+     * to. Misses are coalesced to this interval; a hit always goes out at once
+     * because that is the one event worth seeing immediately.
+     */
+    private const val EMIT_INTERVAL_MS = 150L
+
     /** Entries kept for the live list. Unbounded scanning, bounded memory. */
     private const val RECENT_LIMIT = 50
 
@@ -89,6 +107,16 @@ object CleanIpScanner {
 
     /** Survivors waiting to be measured. */
     private val pending = java.util.Collections.synchronizedList(mutableListOf<Pair<String, Int>>())
+
+    /** True once every seed has been probed - see [MIN_BATCH]. */
+    @Volatile
+    private var seedPhaseDone = false
+
+    @Volatile
+    private var lastDrainAt = 0L
+
+    @Volatile
+    private var lastEmitAt = 0L
 
     fun isRunning(): Boolean = huntJob?.isActive == true
 
@@ -237,6 +265,9 @@ object CleanIpScanner {
     ) {
         if (isRunning()) return
         pending.clear()
+        seedPhaseDone = false
+        lastDrainAt = System.currentTimeMillis()
+        lastEmitAt = 0L
         val probed = AtomicInteger(0)
         val alive = AtomicInteger(0)
         val recent = ArrayDeque<Probe>()
@@ -248,6 +279,16 @@ object CleanIpScanner {
             synchronized(recent) {
                 recent.addFirst(Probe(ip, ok, if (ok) ms else -1L))
                 while (recent.size > RECENT_LIMIT) recent.removeLast()
+
+                // Thirty-two workers finishing a 1.5 s handshake each produce
+                // roughly twenty of these a second, and the old code turned
+                // every single one into a StateFlow emission carrying a fresh
+                // fifty-element list. Compose recomposed the whole probe list
+                // each time, which is what the scan actually felt like.
+                val now = System.currentTimeMillis()
+                if (!ok && now - lastEmitAt < EMIT_INTERVAL_MS) return
+                lastEmitAt = now
+
                 _progress.value = Progress(
                     probed = probed.get(),
                     alive = alive.get(),
@@ -278,19 +319,24 @@ object CleanIpScanner {
                 }
             }
 
+            seedPhaseDone = true
+
             // ---- then the endless random sweep ---------------------------
-            val gate = Semaphore(PARALLEL)
-            while (isActive) {
-                coroutineScope {
-                    repeat(PARALLEL * 2) {
-                        launch {
-                            gate.withPermit {
-                                if (!isActive) return@withPermit
-                                val ip = randomAddress()
-                                val ms = handshake(ip, port, template.sni)
-                                if (ms >= 0) pending.add(ip to port)
-                                record(ip, ms >= 0, ms)
-                            }
+            //
+            // This used to fire waves of 64 through a semaphore inside a
+            // coroutineScope, which made every wave wait for its own slowest
+            // handshake before the next could start. With a 1.5 s timeout one
+            // dead address stalled thirty-one live workers. Persistent workers
+            // have no barrier: each takes the next address the moment it is
+            // free, so throughput stays flat instead of sawtoothing.
+            coroutineScope {
+                repeat(PARALLEL) {
+                    launch {
+                        while (isActive) {
+                            val ip = randomAddress()
+                            val ms = handshake(ip, port, template.sni)
+                            if (ms >= 0) pending.add(ip to port)
+                            record(ip, ms >= 0, ms)
                         }
                     }
                 }
@@ -304,11 +350,27 @@ object CleanIpScanner {
     fun stop() {
         huntJob?.cancel()
         huntJob = null
+        seedPhaseDone = false
         _progress.value = _progress.value.copy(running = false)
     }
 
-    /** True once a full batch of survivors is waiting. */
-    fun batchReady(): Boolean = pending.size >= BATCH
+    /**
+     * True once there is something worth measuring.
+     *
+     * A full [BATCH] is the happy path, but demanding twelve was a real bug:
+     * the seeds - the operator's own known-good addresses - are probed first
+     * and typically yield a handful within a second or two. The hunt then sat
+     * on them, refusing to measure, until a random sweep of 1.5 million
+     * addresses happened to turn up enough strangers to round the number out.
+     * That is the "it finds them and then does nothing" stall.
+     */
+    fun batchReady(): Boolean {
+        val n = pending.size
+        if (n >= BATCH) return true
+        if (n == 0 || !seedPhaseDone) return false
+        return n >= MIN_BATCH ||
+            System.currentTimeMillis() - lastDrainAt >= DRAIN_AFTER_MS
+    }
 
     fun pendingCount(): Int = pending.size
 
@@ -325,6 +387,7 @@ object CleanIpScanner {
             batch = pending.take(BATCH).toList()
             repeat(batch.size) { if (pending.isNotEmpty()) pending.removeAt(0) }
         }
+        lastDrainAt = System.currentTimeMillis()
         return runCatching {
             ensureGroup()
             MmkvManager.removeServerViaSubid(SCAN_SUB_ID)

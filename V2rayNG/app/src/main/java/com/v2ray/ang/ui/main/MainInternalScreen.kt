@@ -49,6 +49,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.v2ray.ang.R
 import com.v2ray.ang.handler.BundledData
 import com.v2ray.ang.handler.CleanIpScanner
+import com.v2ray.ang.handler.FilternetMode
 import com.v2ray.ang.handler.InternalVault
 import com.v2ray.ang.handler.ServerPoolManager
 import com.v2ray.ang.ui.compose.FilternetAccentBrush
@@ -84,6 +85,12 @@ internal fun MainInternalScreen(
 
     val scan by CleanIpScanner.progress.collectAsStateWithLifecycle()
     val busy = scan.running
+    // Only call it connected when this tab is the one holding the tunnel. A
+    // tunnel the home tab started is none of this screen's business, and
+    // showing its own disconnect button for it was how the two tabs ended up
+    // fighting over the same service.
+    val tunnelOwner by FilternetMode.owner.collectAsStateWithLifecycle()
+    val minePending = isRunning && tunnelOwner == FilternetMode.Owner.INTERNAL
     val scope = rememberCoroutineScope()
     var blockReport by remember { mutableStateOf<CleanIpScanner.BlockReport?>(null) }
     var classifying by remember { mutableStateOf(false) }
@@ -131,23 +138,23 @@ internal fun MainInternalScreen(
         Spacer(Modifier.height(16.dp))
 
         DeepConnectOrb(
-            isRunning = isRunning,
+            isRunning = minePending,
             busy = busy,
             onClick = {
                 when {
-                    isRunning -> onDisconnect()
+                    minePending -> onDisconnect()
                     busy -> onCancel()
                     else -> onDeepConnect()
                 }
             },
         )
 
-        if (isRunning || busy) {
+        if (minePending || busy) {
             Spacer(Modifier.height(10.dp))
             Surface(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .clickable { if (isRunning) onDisconnect() else onCancel() },
+                    .clickable { if (minePending) onDisconnect() else onCancel() },
                 shape = RoundedCornerShape(FilternetTokens.RadiusMedium),
                 color = FilternetTokens.Rose.copy(alpha = 0.10f),
                 contentColor = FilternetTokens.Rose,
@@ -157,7 +164,7 @@ internal fun MainInternalScreen(
             ) {
                 Text(
                     text = stringResource(
-                        if (isRunning) R.string.fn_internal_disconnect
+                        if (minePending) R.string.fn_internal_disconnect
                         else R.string.fn_core_cancel
                     ),
                     style = MaterialTheme.typography.titleSmall,
@@ -172,7 +179,7 @@ internal fun MainInternalScreen(
 
         Spacer(Modifier.height(14.dp))
 
-        StageList(scan = scan, isRunning = isRunning)
+        StageList(scan = scan, isRunning = minePending)
 
         Spacer(Modifier.height(12.dp))
 

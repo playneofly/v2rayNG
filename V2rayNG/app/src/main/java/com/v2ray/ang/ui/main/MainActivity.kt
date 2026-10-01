@@ -4,6 +4,7 @@ import com.v2ray.ang.handler.IrcfSource
 import kotlinx.coroutines.isActive
 import com.v2ray.ang.handler.InternalVault
 import com.v2ray.ang.handler.CleanIpScanner
+import com.v2ray.ang.handler.FilternetMode
 import kotlinx.coroutines.delay
 import com.v2ray.ang.handler.ServerPoolManager
 import androidx.compose.runtime.getValue
@@ -265,10 +266,27 @@ class MainActivity : HelperBaseComponentActivity() {
 
     private fun handleFabAction() {
         if (mainViewModel.uiState.value.isRunning) {
-            LauncherManager.stopService(this)
+            stopTunnel()
         } else {
+            FilternetMode.claim(FilternetMode.Owner.MAIN)
             requestServiceStart()
         }
+    }
+
+    /**
+     * FILTERNET: the one way down.
+     *
+     * Whoever owned the tunnel, stopping it hands the home tab back the
+     * profile the hunt borrowed - otherwise the next ordinary connect would
+     * silently reuse a scan result that is only good for one operator on one
+     * evening.
+     */
+    private fun stopTunnel() {
+        LauncherManager.stopService(this)
+        if (FilternetMode.isInternal()) {
+            FilternetMode.consumeSelection()?.let { mainViewModel.selectServerQuietly(it) }
+        }
+        FilternetMode.release()
     }
 
     private fun requestServiceStart() {
@@ -306,6 +324,7 @@ class MainActivity : HelperBaseComponentActivity() {
      */
     private fun handleAutoConnect() {
         if (autoConnectJob?.isActive == true) return
+        FilternetMode.claim(FilternetMode.Owner.MAIN)
         autoConnectJob = lifecycleScope.launch {
             val ready = ServerPoolManager.prepareCandidates(applicationContext)
             if (!ready) return@launch
@@ -352,6 +371,11 @@ class MainActivity : HelperBaseComponentActivity() {
      */
     private fun handleDeepConnect() {
         if (autoConnectJob?.isActive == true) return
+        // The private tab owns this tunnel from the first probe, not from the
+        // moment it succeeds. Claiming late left a window where the home tab
+        // saw a tunnel it did not start and happily offered to disconnect it.
+        FilternetMode.claim(FilternetMode.Owner.INTERNAL)
+        FilternetMode.rememberSelection(mainViewModel.uiState.value.selectedGuid)
         autoConnectJob = lifecycleScope.launch {
             try {
                 withContext(Dispatchers.IO) {
@@ -367,7 +391,12 @@ class MainActivity : HelperBaseComponentActivity() {
                 }
                 val template = CleanIpScanner.bestTemplate(links)
                 if (template == null) {
+                    // Silent before: the orb simply fell back to idle and the
+                    // user was left thinking the private tab had quietly done
+                    // an ordinary connect. Say what went wrong instead.
                     LogUtil.w(AppConfig.TAG, "DeepConnect: no scannable config available")
+                    toastError(R.string.fn_deep_no_template)
+                    FilternetMode.release()
                     return@launch
                 }
 
@@ -394,7 +423,10 @@ class MainActivity : HelperBaseComponentActivity() {
                         delay(800L)
                         continue
                     }
-                    val winner = mainViewModel.measureRound(batch, timeoutMs = 45_000L)
+                    // 45 s was a round trip the user had to sit through before
+                    // the next batch could even be tried. A dozen handshakes
+                    // that are going to answer answer well inside 20.
+                    val winner = mainViewModel.measureRound(batch, timeoutMs = 20_000L)
                     if (winner != null) {
                         withContext(Dispatchers.IO) {
                             CleanIpScanner.addressOfScanConfig(winner)?.let {
@@ -407,6 +439,7 @@ class MainActivity : HelperBaseComponentActivity() {
                 }
             } catch (e: Exception) {
                 LogUtil.e(AppConfig.TAG, "DeepConnect failed", e)
+                FilternetMode.release()
             } finally {
                 CleanIpScanner.stop()
             }
@@ -415,6 +448,9 @@ class MainActivity : HelperBaseComponentActivity() {
 
     private fun finishDeepConnect(guid: String) {
         CleanIpScanner.stop()
+        // Still INTERNAL - selecting the winning scan profile below moves the
+        // home tab's pointer, and ownership is what stops it acting on that.
+        FilternetMode.claim(FilternetMode.Owner.INTERNAL)
         mainViewModel.selectServerQuietly(guid)
         mainViewModel.onAction(MainAction.RefreshGroups)
         startV2Ray()
@@ -430,6 +466,7 @@ class MainActivity : HelperBaseComponentActivity() {
         mainViewModel.onAction(MainAction.CancelTesting)
         ServerPoolManager.publishIdle()
         CleanIpScanner.reset()
+        if (!mainViewModel.uiState.value.isRunning) FilternetMode.release()
     }
 
     private fun startV2Ray() {
