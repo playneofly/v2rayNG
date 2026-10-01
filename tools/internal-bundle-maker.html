@@ -1,0 +1,286 @@
+<!DOCTYPE html>
+<html lang="fa" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>FILTERNET — ساخت internal.bin</title>
+<!--
+  FILTERNET: builds the encrypted private-config bundle, in the browser.
+
+  Why this file exists
+  ────────────────────
+  A GitHub Actions secret is capped at 48 KB. A real private pool is bigger
+  than that, so the configs cannot be pasted into a secret. GitHub's own
+  answer to this is to encrypt the payload, commit the ciphertext, and keep
+  only the passphrase elsewhere - which is exactly what internal.bin already
+  is, so nothing in the app has to change.
+
+  This page does the encrypting without installing anything, and without the
+  plaintext ever leaving the machine: there is no network code here at all,
+  no script tag, no stylesheet, no image, no fetch. Open it from disk with
+  the Wi-Fi off and it still works.
+
+  The output is byte-compatible with InternalVault.kt and with
+  tools/filternet-bundle.py:
+
+      [salt 16][iv 12][AES-256-GCM ciphertext + 16 byte tag]
+      key = PBKDF2-HMAC-SHA256(password, salt, 200000, 256 bits)
+
+  Changing any of those four numbers here means changing them in both of the
+  other two places, or the phone will simply refuse the bundle.
+-->
+<style>
+  :root {
+    --bg: #0f1115; --card: #171a21; --line: #272c37; --ink: #e8eaf0;
+    --dim: #9aa2b4; --mint: #4ade80; --rose: #f87171; --amber: #fbbf24;
+    --accent: #60a5fa;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 24px 16px 64px; background: var(--bg); color: var(--ink);
+    font-family: Tahoma, Vazirmatn, system-ui, -apple-system, "Segoe UI", sans-serif;
+    font-size: 15px; line-height: 1.8;
+  }
+  .wrap { max-width: 740px; margin: 0 auto; }
+  h1 { font-size: 21px; margin: 0 0 4px; }
+  .sub { color: var(--dim); font-size: 13px; margin: 0 0 24px; }
+  .card {
+    background: var(--card); border: 1px solid var(--line); border-radius: 14px;
+    padding: 18px; margin-bottom: 14px;
+  }
+  .step { display: flex; align-items: center; gap: 9px; margin: 0 0 12px; font-weight: 700; }
+  .num {
+    flex: none; width: 24px; height: 24px; border-radius: 50%;
+    background: var(--accent); color: #0f1115; font-size: 13px; font-weight: 700;
+    display: grid; place-items: center;
+  }
+  #drop {
+    border: 2px dashed var(--line); border-radius: 12px; padding: 26px 16px;
+    text-align: center; color: var(--dim); cursor: pointer; transition: .15s;
+  }
+  #drop:hover, #drop.over { border-color: var(--accent); color: var(--ink); background: #1b1f28; }
+  textarea, input[type=password] {
+    width: 100%; background: #0f1218; color: var(--ink);
+    border: 1px solid var(--line); border-radius: 10px; padding: 11px 13px;
+    font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 13px;
+  }
+  textarea { min-height: 110px; resize: vertical; direction: ltr; text-align: left; }
+  input[type=password] { direction: ltr; text-align: left; font-size: 15px; }
+  label { display: block; font-size: 13px; color: var(--dim); margin: 12px 0 5px; }
+  button {
+    width: 100%; padding: 14px; border: 0; border-radius: 11px; cursor: pointer;
+    background: var(--mint); color: #06240f; font-size: 16px; font-weight: 700;
+    font-family: inherit; margin-top: 16px;
+  }
+  button:disabled { background: #2b3040; color: #6b7280; cursor: not-allowed; }
+  .stat { display: flex; justify-content: space-between; padding: 5px 0; font-size: 14px; }
+  .stat b { font-variant-numeric: tabular-nums; }
+  .ok { color: var(--mint); } .bad { color: var(--rose); } .warn { color: var(--amber); }
+  .muted { color: var(--dim); font-size: 13px; }
+  code {
+    background: #0f1218; border: 1px solid var(--line); border-radius: 5px;
+    padding: 1px 6px; font-size: 12.5px; direction: ltr; display: inline-block;
+  }
+  ol { padding-right: 20px; margin: 8px 0 0; }
+  li { margin-bottom: 7px; }
+  hr { border: 0; border-top: 1px solid var(--line); margin: 14px 0; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <h1>ساخت <code>internal.bin</code></h1>
+  <p class="sub">
+    کانفیگ‌های خصوصی را همین‌جا در مرورگر رمز می‌کند. هیچ چیزی جایی فرستاده نمی‌شود —
+    این صفحه اصلاً کد شبکه ندارد. با اینترنت قطع هم کار می‌کند.
+  </p>
+
+  <div id="nocrypto" class="card" style="display:none; border-color:var(--rose)">
+    <b class="bad">مرورگر اجازه رمزنگاری نمی‌دهد</b>
+    <p class="muted" style="margin:6px 0 0">
+      این فایل را روی کامپیوتر ذخیره کن و مستقیم با دوبار کلیک بازش کن
+      (آدرس باید با <code>file://</code> شروع شود)، یا از Chrome / Firefox / Edge استفاده کن.
+    </p>
+  </div>
+
+  <div class="card">
+    <div class="step"><span class="num">۱</span> فایل کانفیگ‌ها</div>
+    <div id="drop">
+      فایل <code>.txt</code> را اینجا بکش و رها کن — یا کلیک کن
+      <input type="file" id="file" accept=".txt,.text,text/plain" hidden>
+    </div>
+    <label>یا مستقیم پیست کن (هر خط یک کانفیگ):</label>
+    <textarea id="text" placeholder="vless://...&#10;trojan://...&#10;vless://..." spellcheck="false"></textarea>
+    <hr>
+    <div class="stat"><span>کانفیگ معتبر پیدا شد</span><b id="count">۰</b></div>
+    <div class="stat"><span>حجم متن</span><b id="size">۰</b></div>
+    <div id="dupe" class="muted"></div>
+  </div>
+
+  <div class="card">
+    <div class="step"><span class="num">۲</span> رمز عبور</div>
+    <p class="muted" style="margin:0 0 4px">
+      همین رمز را کاربر در تب «داخلی» وارد می‌کند. هیچ‌جا ذخیره نمی‌شود —
+      رمز <b>خودِ کلید</b> است، برای همین اپ بدون اینترنت بازش می‌کند.
+      اگر گمش کنی، این بسته برای همیشه بسته می‌ماند.
+    </p>
+    <label>رمز</label>
+    <input type="password" id="pw1" autocomplete="new-password" spellcheck="false">
+    <label>تکرار رمز</label>
+    <input type="password" id="pw2" autocomplete="new-password" spellcheck="false">
+    <div id="pwmsg" class="muted" style="margin-top:6px">&nbsp;</div>
+  </div>
+
+  <div class="card">
+    <div class="step"><span class="num">۳</span> بساز</div>
+    <button id="go" disabled>ساخت و دانلود internal.bin</button>
+    <div id="result" style="margin-top:12px"></div>
+  </div>
+
+  <div class="card">
+    <div class="step"><span class="num">۴</span> بعدش چه کار کنم</div>
+    <ol class="muted">
+      <li>در گیت‌هاب برو به <code>V2rayNG/app/src/main/assets/</code></li>
+      <li><b>Add file → Upload files</b> و <code>internal.bin</code> را بگذار</li>
+      <li>Commit — همین. هیچ Secret‌ای لازم نیست.</li>
+      <li>بیلد بعدی این بسته را همان‌طور که هست داخل APK می‌گذارد.</li>
+    </ol>
+    <hr>
+    <p class="muted" style="margin:0">
+      <b class="warn">نکته‌ی امنیتی:</b>
+      کامیت کردن این فایل در مخزن عمومی اشکالی ندارد — بدون رمز فقط نویز است.
+      ولی هر کسی که رمز را دارد می‌تواند کانفیگ‌ها را از گوشی خودش بیرون بکشد؛
+      هیچ قفل سمت‌کاربر جلوی این را نمی‌گیرد.
+    </p>
+  </div>
+
+</div>
+
+<script>
+/* ── format constants: must match InternalVault.kt and filternet-bundle.py ── */
+const ITERATIONS = 200000;
+const KEY_BITS   = 256;
+const SALT_LEN   = 16;
+const IV_LEN     = 12;
+const TAG_BITS   = 128;
+
+const $ = id => document.getElementById(id);
+const fa = n => String(n).replace(/[0-9]/g, d => '۰۱۲۳۴۵۶۷۸۹'[d]);
+const faNum = n => fa(n.toLocaleString('en-US')).replace(/,/g, '٬');
+
+const subtle = (window.crypto && window.crypto.subtle) || null;
+if (!subtle) $('nocrypto').style.display = 'block';
+
+/* Same rule InternalVault applies after decrypting, so the number shown here
+   is the number the app will report. */
+function configsIn(text) {
+  return text.split(/\r?\n/)
+    .map(l => l.trim())
+    .filter(l => l && !l.startsWith('#') && l.includes('://'));
+}
+
+let plaintext = '';
+
+function refresh() {
+  const found = configsIn(plaintext);
+  const unique = new Set(found);
+  $('count').textContent = faNum(found.length);
+  $('size').textContent = faNum(new TextEncoder().encode(plaintext).length) + ' بایت';
+  $('dupe').textContent = found.length !== unique.size
+    ? `${faNum(found.length - unique.size)} خط تکراری است — اپ خودش کنار می‌گذارد.`
+    : '';
+
+  const p1 = $('pw1').value, p2 = $('pw2').value;
+  let msg = '\u00a0', cls = 'muted', ok = false;
+  if (!p1) {
+    // nothing typed yet
+  } else if (p1.length < 4) {
+    msg = 'خیلی کوتاه است.'; cls = 'bad';
+  } else if (p2 && p1 !== p2) {
+    msg = 'دو رمز یکی نیستند.'; cls = 'bad';
+  } else if (p1 === p2) {
+    msg = 'رمز تأیید شد.'; cls = 'ok'; ok = true;
+  } else {
+    msg = 'تکرارش را هم بنویس.';
+  }
+  $('pwmsg').textContent = msg;
+  $('pwmsg').className = cls;
+  $('go').disabled = !(ok && found.length > 0 && subtle);
+}
+
+/* ── input ── */
+$('text').addEventListener('input', e => { plaintext = e.target.value; refresh(); });
+
+function loadFile(file) {
+  if (!file) return;
+  const r = new FileReader();
+  r.onload = () => {
+    plaintext = String(r.result);
+    $('text').value = plaintext;
+    $('drop').innerHTML = 'خوانده شد: <b>' + file.name + '</b>';
+    refresh();
+  };
+  r.readAsText(file, 'utf-8');
+}
+
+$('drop').addEventListener('click', () => $('file').click());
+$('file').addEventListener('change', e => loadFile(e.target.files[0]));
+['dragenter', 'dragover'].forEach(ev =>
+  $('drop').addEventListener(ev, e => { e.preventDefault(); $('drop').classList.add('over'); }));
+['dragleave', 'drop'].forEach(ev =>
+  $('drop').addEventListener(ev, e => { e.preventDefault(); $('drop').classList.remove('over'); }));
+$('drop').addEventListener('drop', e => loadFile(e.dataTransfer.files[0]));
+$('pw1').addEventListener('input', refresh);
+$('pw2').addEventListener('input', refresh);
+
+/* ── the only thing that matters ── */
+async function seal(text, password) {
+  const salt = crypto.getRandomValues(new Uint8Array(SALT_LEN));
+  const iv   = crypto.getRandomValues(new Uint8Array(IV_LEN));
+
+  const base = await subtle.importKey(
+    'raw', new TextEncoder().encode(password), 'PBKDF2', false, ['deriveKey']);
+  const key = await subtle.deriveKey(
+    { name: 'PBKDF2', salt, iterations: ITERATIONS, hash: 'SHA-256' },
+    base, { name: 'AES-GCM', length: KEY_BITS }, false, ['encrypt']);
+  const body = new Uint8Array(await subtle.encrypt(
+    { name: 'AES-GCM', iv, tagLength: TAG_BITS }, key,
+    new TextEncoder().encode(text)));
+
+  const out = new Uint8Array(SALT_LEN + IV_LEN + body.length);
+  out.set(salt, 0);
+  out.set(iv, SALT_LEN);
+  out.set(body, SALT_LEN + IV_LEN);
+  return out;
+}
+
+$('go').addEventListener('click', async () => {
+  $('go').disabled = true;
+  $('go').textContent = 'در حال رمزگذاری…';
+  $('result').innerHTML = '';
+  try {
+    const n = configsIn(plaintext).length;
+    const blob = await seal(plaintext, $('pw1').value);
+
+    const url = URL.createObjectURL(new Blob([blob], { type: 'application/octet-stream' }));
+    const a = document.createElement('a');
+    a.href = url; a.download = 'internal.bin';
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 10000);
+
+    $('result').innerHTML =
+      '<div class="stat"><span class="ok">✓ ساخته شد و دانلود شد</span><b>internal.bin</b></div>' +
+      '<div class="stat"><span>کانفیگ داخلش</span><b>' + faNum(n) + '</b></div>' +
+      '<div class="stat"><span>حجم فایل</span><b>' + faNum(blob.length) + ' بایت</b></div>' +
+      '<p class="muted" style="margin:8px 0 0">حالا همین فایل را در گیت‌هاب آپلود کن (مرحله ۴).</p>';
+  } catch (e) {
+    $('result').innerHTML = '<b class="bad">خطا: ' + e.message + '</b>';
+  }
+  $('go').textContent = 'ساخت و دانلود internal.bin';
+  refresh();
+});
+
+refresh();
+</script>
+</body>
+</html>

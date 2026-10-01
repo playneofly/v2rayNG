@@ -342,6 +342,7 @@ private fun OfflineDataCard() {
 
     var manifest by remember { mutableStateOf(BundledData.Manifest()) }
     var available by remember { mutableStateOf(0) }
+    var privateCount by remember { mutableStateOf(0) }
     var refreshing by remember { mutableStateOf(false) }
     var refreshFailed by remember { mutableStateOf(false) }
 
@@ -356,6 +357,11 @@ private fun OfflineDataCard() {
         // bundled list with a longer one.
         val counted = withContext(Dispatchers.IO) { ServerPoolManager.availableCount(context) }
         available = maxOf(counted, read.poolConfigs)
+        // A bundle that was sealed elsewhere and committed ready-made cannot be
+        // counted by the build script, which writes -1 for it. This card only
+        // ever draws behind the unlock screen, so the open vault is the better
+        // witness; the manifest is the fallback for the build-time path.
+        privateCount = maxOf(InternalVault.configs().size, read.internalConfigs)
     }
 
     Surface(
@@ -390,8 +396,8 @@ private fun OfflineDataCard() {
             Spacer(Modifier.height(6.dp))
 
             OfflineDataRow(R.string.fn_offline_pool, faCount(available))
-            if (manifest.internalConfigs > 0) {
-                OfflineDataRow(R.string.fn_offline_internal, faCount(manifest.internalConfigs))
+            if (privateCount > 0) {
+                OfflineDataRow(R.string.fn_offline_internal, faCount(privateCount))
             }
             OfflineDataRow(R.string.fn_offline_ircf, faCount(manifest.ircfAddresses))
             OfflineDataRow(R.string.fn_offline_cloudflare, faCount(manifest.cloudflareAddresses))
