@@ -67,6 +67,7 @@ import com.v2ray.ang.ui.userasset.UserAssetActivity
 import com.v2ray.ang.util.LogUtil
 import com.v2ray.ang.util.Utils
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -209,6 +210,7 @@ class MainActivity : HelperBaseComponentActivity() {
                     MainAction.AutoConnect -> handleAutoConnect()
                     MainAction.CancelAutoConnect -> cancelAutoConnect()
                     MainAction.DeepConnect -> handleDeepConnect()
+                    MainAction.StrongScan -> handleStrongScan()
                     MainAction.TestCurrentServer -> handleLayoutTestClick()
                     MainAction.ImportQRcode -> importQRcode()
                     MainAction.ImportClipboard -> importClipboard()
@@ -284,6 +286,7 @@ class MainActivity : HelperBaseComponentActivity() {
     private fun stopTunnel() {
         LauncherManager.stopService(this)
         CleanIpScanner.setConnectedVia(null)
+        CleanIpScanner.setQuality(CleanIpScanner.Quality.NONE)
         if (FilternetMode.isInternal()) {
             FilternetMode.consumeSelection()?.let { mainViewModel.selectServerQuietly(it) }
         }
@@ -427,6 +430,13 @@ class MainActivity : HelperBaseComponentActivity() {
                     seedMemory = memory.size,
                 )
 
+                // On a congested carrier a dozen simultaneous proxy probes
+                // can all time out even when the addresses are fine. That is
+                // the "finds a thousand live IPs and never connects" report:
+                // the handshakes are real, the parallel measurement is what
+                // keeps failing. Count the failures and change tactics.
+                var failedRounds = 0
+
                 while (isActive) {
                     if (!CleanIpScanner.batchReady()) {
                         delay(800L)
@@ -442,6 +452,17 @@ class MainActivity : HelperBaseComponentActivity() {
                     // that are going to answer answer well inside 20.
                     CleanIpScanner.markMeasuring()
                     val winner = mainViewModel.measureRound(batch, timeoutMs = 20_000L)
+
+                    if (winner == null) {
+                        failedRounds++
+                        if (failedRounds >= ROUNDS_BEFORE_DECIDING &&
+                            CleanIpScanner.survivorCount() >= SURVIVORS_BEFORE_DECIDING
+                        ) {
+                            if (decisiveConnect(template, carrier)) return@launch
+                            failedRounds = 0
+                        }
+                    }
+
                     if (winner != null) {
                         withContext(Dispatchers.IO) {
                             CleanIpScanner.addressOfScanConfig(winner)?.let {
@@ -449,6 +470,8 @@ class MainActivity : HelperBaseComponentActivity() {
                                 CleanIpScanner.setConnectedVia(it)
                             }
                         }
+                        // Passed the full real-ping: this one is proven.
+                        CleanIpScanner.setQuality(CleanIpScanner.Quality.VERIFIED)
                         finishDeepConnect(winner)
                         return@launch
                     }
@@ -460,6 +483,234 @@ class MainActivity : HelperBaseComponentActivity() {
                 CleanIpScanner.stop()
             }
         }
+    }
+
+    /** Survivors that must exist before the hunt is allowed to commit. */
+    private val SURVIVORS_BEFORE_DECIDING = 20
+
+    /**
+     * Failed parallel rounds before we stop trusting parallel measurement.
+     * Two, not more: each round costs the user 20 s of staring at a spinner,
+     * and the serial path below is strictly more likely to succeed anyway.
+     */
+    private val ROUNDS_BEFORE_DECIDING = 2
+
+    /**
+     * How many of the best addresses get the slow, careful treatment.
+     * Four at 10 s caps this stage at ~40 s before we commit regardless.
+     */
+    private val DECISIVE_CANDIDATES = 4
+
+    /**
+     * FILTERNET: stop hunting, start choosing.
+     *
+     * Reaching here means plenty of addresses complete a TLS handshake but no
+     * batch has ever produced a working proxy measurement. Two things are then
+     * worth trying, in order:
+     *
+     *  1. Measure the best few **one at a time**. Twelve parallel probes over
+     *     one congested mobile uplink starve each other; a single probe with
+     *     the whole link to itself often succeeds where the batch did not.
+     *
+     *  2. Failing that, connect to the fastest-handshaking address anyway.
+     *     A tunnel the user can test beats a spinner that never ends - and on
+     *     a carrier that quietly drops the measurement probe this is the only
+     *     way through. It may not work; it is still better than nothing, and
+     *     the address is shown on screen so the result is visible either way.
+     *
+     * @return true when a tunnel was started and the hunt should end.
+     */
+    private suspend fun decisiveConnect(
+        template: CleanIpScanner.ConfigTemplate,
+        carrier: String,
+    ): Boolean {
+        val best = withContext(Dispatchers.IO) {
+            CleanIpScanner.bestSurvivors(DECISIVE_CANDIDATES)
+        }
+        if (best.isEmpty()) return false
+        LogUtil.i(AppConfig.TAG, "DeepConnect: deciding between ${best.size} best addresses")
+
+        // ---- one at a time, with room to breathe ------------------------
+        for (survivor in best) {
+            val guids = withContext(Dispatchers.IO) {
+                CleanIpScanner.importAll(template, listOf(survivor))
+            }
+            val guid = guids.firstOrNull() ?: continue
+            val ok = mainViewModel.measureRound(listOf(guid), timeoutMs = 10_000L)
+            if (ok != null) {
+                withContext(Dispatchers.IO) {
+                    CleanIpScanner.rememberWinner(carrier, survivor.ip)
+                    CleanIpScanner.setConnectedVia(survivor.ip)
+                }
+                CleanIpScanner.setQuality(CleanIpScanner.Quality.VERIFIED)
+                finishDeepConnect(ok)
+                return true
+            }
+        }
+
+        // ---- nothing measured: commit to the fastest handshake ----------
+        val fallback = best.first()
+        val guid = withContext(Dispatchers.IO) {
+            CleanIpScanner.importAll(template, listOf(fallback))
+        }.firstOrNull() ?: return false
+
+        LogUtil.w(
+            AppConfig.TAG,
+            "DeepConnect: no address passed measurement, committing to the fastest handshake",
+        )
+        withContext(Dispatchers.IO) {
+            CleanIpScanner.rememberWinner(carrier, fallback.ip)
+            CleanIpScanner.setConnectedVia(fallback.ip)
+        }
+        // Nothing proved itself. Mark it so the strongest-scan button appears.
+        CleanIpScanner.setQuality(CleanIpScanner.Quality.UNVERIFIED)
+        toast(R.string.fn_deep_committed)
+        finishDeepConnect(guid)
+        return true
+    }
+
+    /* ───────────────────── strongest scan ───────────────────── */
+
+    /** Verified addresses to gather before picking the fastest. */
+    private val STRONG_TARGET = 5
+
+    /** Once one works, how long to keep looking for a better one. */
+    private val STRONG_GRACE_MS = 90_000L
+
+    private var strongScanJob: Job? = null
+
+    fun isStrongScanRunning(): Boolean = strongScanJob?.isActive == true
+
+    fun cancelStrongScan() {
+        strongScanJob?.cancel()
+        strongScanJob = null
+        CleanIpScanner.stop()
+    }
+
+    /**
+     * FILTERNET: the "it says connected but nothing loads" escape hatch.
+     *
+     * The ordinary hunt gives up after a while and commits to the fastest
+     * handshake, which may be a tunnel that carries nothing. This is the
+     * opposite trade: it never commits to anything unproven, and it never
+     * stops on its own.
+     *
+     * Three things make it stronger than the ordinary hunt rather than just
+     * longer:
+     *
+     *  - **Every worker domain, not one.** A carrier can filter one
+     *    workers.dev name and leave another alone. The ordinary hunt only
+     *    ever tries the most common one.
+     *  - **Every Cloudflare TLS port, not one.**
+     *  - **Measured one at a time from the start.** Parallel measurement is
+     *    what fails on a congested carrier in the first place.
+     *
+     * The live tunnel is deliberately left up while this runs: the app
+     * excludes itself from its own VPN, so the probes are unaffected, and the
+     * user keeps whatever they had until there is something better to switch
+     * to.
+     */
+    private fun handleStrongScan() {
+        if (isStrongScanRunning()) {
+            cancelStrongScan()
+            return
+        }
+        cancelAutoConnect()
+        CleanIpScanner.stop()
+        // The tunnel this is about to replace is already ours; claiming again
+        // is harmless and covers the case where it was started elsewhere.
+        FilternetMode.claim(FilternetMode.Owner.INTERNAL)
+
+        strongScanJob = lifecycleScope.launch {
+            try {
+                CleanIpScanner.beginPreparing()
+                val carrier = IrcfSource.carrierName(applicationContext)
+
+                val links = withContext(Dispatchers.IO) {
+                    InternalVault.configs().ifEmpty {
+                        ServerPoolManager.poolLinks(applicationContext)
+                    }
+                }
+                val templates = withContext(Dispatchers.IO) { CleanIpScanner.allTemplates(links) }
+                if (templates.isEmpty()) {
+                    toastError(R.string.fn_deep_no_template)
+                    return@launch
+                }
+                LogUtil.i(AppConfig.TAG, "StrongScan: ${templates.size} worker domains in play")
+
+                withContext(Dispatchers.IO) {
+                    CleanIpScanner.refreshRanges(applicationContext)
+                }
+                val memory = withContext(Dispatchers.IO) { CleanIpScanner.winners(carrier) }
+                val ircf = withContext(Dispatchers.IO) {
+                    IrcfSource.fetch(applicationContext).addresses
+                }
+                CleanIpScanner.start(
+                    template = templates.first(),
+                    seeds = memory + ircf,
+                    seedIrcf = ircf.size,
+                    seedMemory = memory.size,
+                    templates = templates,
+                    strong = true,
+                )
+
+                // Verified winners, fastest kept at the front.
+                val found = mutableListOf<Pair<CleanIpScanner.Survivor, String>>()
+                var firstHitAt = 0L
+                val tried = HashSet<String>()
+
+                while (isActive) {
+                    val candidates = withContext(Dispatchers.IO) {
+                        CleanIpScanner.bestSurvivors(40).filter { tried.add(it.ip + ":" + it.port) }
+                    }
+                    if (candidates.isEmpty()) {
+                        delay(700L)
+                        if (shouldSettle(found, firstHitAt)) break
+                        continue
+                    }
+
+                    for (s in candidates) {
+                        if (!isActive) break
+                        val guid = withContext(Dispatchers.IO) {
+                            CleanIpScanner.importAll(templates.first(), listOf(s))
+                        }.firstOrNull() ?: continue
+
+                        // One at a time. The whole uplink to itself.
+                        val ok = mainViewModel.measureRound(listOf(guid), timeoutMs = 10_000L)
+                        if (ok != null) {
+                            found.add(s to ok)
+                            if (firstHitAt == 0L) firstHitAt = System.currentTimeMillis()
+                            LogUtil.i(AppConfig.TAG, "StrongScan: verified ${found.size}/$STRONG_TARGET")
+                        }
+                        if (shouldSettle(found, firstHitAt)) break
+                    }
+                    if (shouldSettle(found, firstHitAt)) break
+                }
+
+                val best = found.minByOrNull { it.first.ms } ?: return@launch
+                withContext(Dispatchers.IO) {
+                    CleanIpScanner.rememberWinner(carrier, best.first.ip)
+                    CleanIpScanner.setConnectedVia(best.first.ip)
+                }
+                CleanIpScanner.setQuality(CleanIpScanner.Quality.VERIFIED)
+                toastSuccess(R.string.fn_strong_found)
+                finishDeepConnect(best.second)
+            } catch (e: Exception) {
+                LogUtil.e(AppConfig.TAG, "StrongScan failed", e)
+            } finally {
+                CleanIpScanner.stop()
+                strongScanJob = null
+            }
+        }
+    }
+
+    /** Enough proven addresses, or long enough since the first one. */
+    private fun shouldSettle(
+        found: List<Pair<CleanIpScanner.Survivor, String>>,
+        firstHitAt: Long,
+    ): Boolean {
+        if (found.size >= STRONG_TARGET) return true
+        return found.isNotEmpty() && System.currentTimeMillis() - firstHitAt >= STRONG_GRACE_MS
     }
 
     private fun finishDeepConnect(guid: String) {

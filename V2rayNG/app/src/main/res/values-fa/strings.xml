@@ -757,4 +757,14 @@
     <string name="fn_internal_disconnect">قطع اتصال</string>
     <string name="fn_src_memory">آدرس‌های موفق قبلی · %1$s</string>
     <string name="fn_src_ircf">آدرس‌های IRCF اپراتورت · %1$s</string>
+    <string name="fn_probe_live_title">در حال اسکن آدرس‌ها</string>
+    <string name="fn_probe_done_title">آدرس‌های اسکن‌شده</string>
+    <string name="fn_probe_tally">%1$d زنده از %2$d</string>
+    <string name="fn_deep_committed">هیچ آدرسی تست کامل را رد نکرد. به سریع‌ترین آدرس پیداشده وصل می‌شوم.</string>
+    <string name="fn_strong_title">اسکن عمیق</string>
+    <string name="fn_strong_desc">حالا بروید و اتصال فیلترشکن را امتحان کنید و اگر کار نمی‌کرد و چیزی بالا نمی‌آمد این گزینه را بزنید تا قوی‌ترین حالت ممکن اسکن انجام بشه.</string>
+    <string name="fn_strong_running">اسکن عمیق در حال اجرا</string>
+    <string name="fn_strong_running_desc">همه‌ی دامنه‌های ورکر و همه‌ی پورت‌های کلادفلر، آدرس‌به‌آدرس. تا وقتی آدرسی که واقعاً کار کند پیدا نشود متوقف نمی‌شود. برای توقف بزنید.</string>
+    <string name="fn_strong_found">یک آدرس کارکن پیدا و تأیید شد. در حال سوئیچ.</string>
+    <string name="fn_stage_strong">اسکن قوی</string>
 </resources>

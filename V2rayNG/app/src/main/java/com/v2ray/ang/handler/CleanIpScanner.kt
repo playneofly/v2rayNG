@@ -96,7 +96,7 @@ object CleanIpScanner {
      * of silence on a slow network. The screen used to show a resting orb for
      * all of it, so tapping connect looked like it had done nothing at all.
      */
-    enum class Stage { IDLE, PREPARING, SEEDING, SWEEPING, MEASURING }
+    enum class Stage { IDLE, PREPARING, SEEDING, SWEEPING, MEASURING, STRONG }
 
     data class Progress(
         val probed: Int = 0,
@@ -123,6 +123,37 @@ object CleanIpScanner {
 
     fun setConnectedVia(ip: String?) { _connectedVia.value = ip }
 
+    /* ──────────────── how much do we trust this connection? ──────────────── */
+
+    /**
+     * Whether the live tunnel was ever actually proven to carry traffic.
+     *
+     * [VERIFIED] means some address passed the full real-ping through the
+     * proxy. [UNVERIFIED] means the hunt ran out of patience and committed to
+     * the fastest handshake instead - the tunnel is up, but nothing has shown
+     * that anything flows through it. That distinction is the whole trigger
+     * for the strongest-scan button.
+     */
+    enum class Quality { NONE, VERIFIED, UNVERIFIED }
+
+    private const val KEY_QUALITY = "fn_conn_quality"
+
+    private val _quality = MutableStateFlow(
+        runCatching {
+            Quality.valueOf(
+                MmkvManager.decodeSettingsString(KEY_QUALITY) ?: Quality.NONE.name,
+            )
+        }.getOrDefault(Quality.NONE),
+    )
+
+    /** Survives process death, so the button is still there when they return. */
+    val quality: StateFlow<Quality> = _quality.asStateFlow()
+
+    fun setQuality(q: Quality) {
+        _quality.value = q
+        runCatching { MmkvManager.encodeSettings(KEY_QUALITY, q.name) }
+    }
+
     /**
      * Call on the main thread the instant the user taps, before any IO. Owns
      * nothing and blocks nothing - it just stops the UI from lying.
@@ -139,8 +170,34 @@ object CleanIpScanner {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private var huntJob: Job? = null
 
-    /** Survivors waiting to be measured. */
-    private val pending = java.util.Collections.synchronizedList(mutableListOf<Pair<String, Int>>())
+    /**
+     * A survivor: the address, the port it answered on, how fast, and - in
+     * the strongest mode, where several worker domains are tried at once -
+     * which template it actually answered for. Null means the caller's
+     * default template, which is all the ordinary hunt ever uses.
+     */
+    data class Survivor(
+        val ip: String,
+        val port: Int,
+        val ms: Long,
+        val template: ConfigTemplate? = null,
+    )
+
+    /** Survivors waiting to be measured, fastest handshake first. */
+    private val pending = java.util.Collections.synchronizedList(mutableListOf<Survivor>())
+
+    /**
+     * Every survivor this hunt has produced, kept so the last-resort path can
+     * still reach the good ones after [takeBatch] has drained them.
+     */
+    private val allSurvivors = java.util.Collections.synchronizedList(mutableListOf<Survivor>())
+
+    /** Best survivors by handshake latency, for the decisive final attempt. */
+    fun bestSurvivors(limit: Int): List<Survivor> = synchronized(allSurvivors) {
+        allSurvivors.sortedBy { it.ms }.distinctBy { it.ip }.take(limit)
+    }
+
+    fun survivorCount(): Int = allSurvivors.size
 
     /** True once every seed has been probed - see [MIN_BATCH]. */
     @Volatile
@@ -296,9 +353,21 @@ object CleanIpScanner {
         seeds: List<String> = emptyList(),
         seedIrcf: Int = 0,
         seedMemory: Int = 0,
+        /**
+         * Every worker domain worth trying. Empty means "just [template]",
+         * which is what the ordinary hunt passes. The strongest scan passes
+         * all of them and the sweep rotates across them.
+         */
+        templates: List<ConfigTemplate> = emptyList(),
+        /**
+         * Strongest mode: rotate every Cloudflare TLS port as well, instead of
+         * staying on the one port the template happens to name.
+         */
+        strong: Boolean = false,
     ) {
         if (isRunning()) return
         pending.clear()
+        allSurvivors.clear()
         seedPhaseDone = false
         lastDrainAt = System.currentTimeMillis()
         lastEmitAt = 0L
@@ -307,7 +376,11 @@ object CleanIpScanner {
         val recent = ArrayDeque<Probe>()
         _progress.value = Progress(
             running = true, seedIrcf = seedIrcf, seedMemory = seedMemory,
-            stage = if (seeds.isEmpty()) Stage.SWEEPING else Stage.SEEDING,
+            stage = when {
+                strong -> Stage.STRONG
+                seeds.isEmpty() -> Stage.SWEEPING
+                else -> Stage.SEEDING
+            },
         )
 
         fun record(ip: String, ok: Boolean, ms: Long) {
@@ -335,7 +408,11 @@ object CleanIpScanner {
                     seedMemory = seedMemory,
                     // Rebuilt wholesale each time, so carry the stage across
                     // or the UI drops back to PREPARING on every probe.
-                    stage = if (seedPhaseDone) Stage.SWEEPING else Stage.SEEDING,
+                    stage = when {
+                        strong -> Stage.STRONG
+                        seedPhaseDone -> Stage.SWEEPING
+                        else -> Stage.SEEDING
+                    },
                 )
             }
         }
@@ -343,15 +420,24 @@ object CleanIpScanner {
         huntJob = scope.launch {
             val port = template.port.takeIf { it in CF_PORTS } ?: 443
 
+            // The axes the strongest scan sweeps across. Ordinary hunts keep
+            // exactly the old behaviour: one template, one port.
+            val tpls = templates.ifEmpty { listOf(template) }
+            val ports = if (strong) CF_PORTS else listOf(port)
+
             // ---- seeds first, all together -------------------------------
             if (seeds.isNotEmpty()) {
                 val gate = Semaphore(PARALLEL)
                 coroutineScope {
-                    seeds.distinct().forEach { ip ->
+                    seeds.distinct().forEachIndexed { i, ip ->
                         launch {
                             gate.withPermit {
-                                val ms = handshake(ip, port, template.sni)
-                                if (ms >= 0) pending.add(ip to port)
+                                val t = tpls[i % tpls.size]
+                                val p = ports[(i / tpls.size) % ports.size]
+                                val ms = handshake(ip, p, t.sni)
+                                if (ms >= 0) {
+                                    Survivor(ip, p, ms, t).let { pending.add(it); allSurvivors.add(it) }
+                                }
                                 record(ip, ms >= 0, ms)
                             }
                         }
@@ -360,7 +446,7 @@ object CleanIpScanner {
             }
 
             seedPhaseDone = true
-            _progress.value = _progress.value.copy(stage = Stage.SWEEPING)
+            if (!strong) _progress.value = _progress.value.copy(stage = Stage.SWEEPING)
 
             // ---- then the endless random sweep ---------------------------
             //
@@ -371,12 +457,22 @@ object CleanIpScanner {
             // have no barrier: each takes the next address the moment it is
             // free, so throughput stays flat instead of sawtoothing.
             coroutineScope {
-                repeat(PARALLEL) {
+                repeat(PARALLEL) { worker ->
                     launch {
+                        // Each worker starts at a different offset and steps
+                        // through the axes independently, so address, port and
+                        // worker domain all get covered at once rather than
+                        // one axis being exhausted before the next is touched.
+                        var n = worker
                         while (isActive) {
                             val ip = randomAddress()
-                            val ms = handshake(ip, port, template.sni)
-                            if (ms >= 0) pending.add(ip to port)
+                            val t = tpls[n % tpls.size]
+                            val p = ports[(n / tpls.size) % ports.size]
+                            n++
+                            val ms = handshake(ip, p, t.sni)
+                            if (ms >= 0) {
+                                Survivor(ip, p, ms, t).let { pending.add(it); allSurvivors.add(it) }
+                            }
                             record(ip, ms >= 0, ms)
                         }
                     }
@@ -422,17 +518,30 @@ object CleanIpScanner {
      * @return guids ready to be measured by the core.
      */
     fun takeBatch(template: ConfigTemplate): List<String> {
-        val batch: List<Pair<String, Int>>
+        val batch: List<Survivor>
         synchronized(pending) {
             if (pending.isEmpty()) return emptyList()
-            batch = pending.take(BATCH).toList()
-            repeat(batch.size) { if (pending.isNotEmpty()) pending.removeAt(0) }
+            // Fastest handshake first. The core measures the whole batch in
+            // parallel, so on a congested mobile link the slow ones are the
+            // ones that drag the round into its timeout.
+            val sorted = pending.sortedBy { it.ms }
+            batch = sorted.take(BATCH)
+            pending.clear()
+            pending.addAll(sorted.drop(BATCH))
         }
         lastDrainAt = System.currentTimeMillis()
+        return importAll(template, batch)
+    }
+
+    /** Imports [list] into the scan group, replacing whatever was there. */
+    fun importAll(template: ConfigTemplate, list: List<Survivor>): List<String> {
+        if (list.isEmpty()) return emptyList()
         return runCatching {
             ensureGroup()
             MmkvManager.removeServerViaSubid(SCAN_SUB_ID)
-            val payload = batch.joinToString("\n") { (ip, port) -> template.withAddress(ip, port) }
+            val payload = list.joinToString("\n") {
+                (it.template ?: template).withAddress(it.ip, it.port)
+            }
             AngConfigManager.importBatchConfig(payload, SCAN_SUB_ID, false)
             MmkvManager.decodeServerList(SCAN_SUB_ID)
         }.getOrDefault(emptyList())
@@ -513,6 +622,21 @@ object CleanIpScanner {
         if (host.isBlank() || sni.isBlank()) return@runCatching null
         ConfigTemplate(link, host, port, sni)
     }.getOrNull()
+
+    /**
+     * Every distinct worker domain in the pool, most common first.
+     *
+     * The ordinary hunt only ever uses [bestTemplate] - the single most common
+     * backend. But a carrier can filter one worker domain and leave another
+     * untouched, so the strongest scan rotates through all of them. With this
+     * user's pool that is four domains behind 788 configs.
+     */
+    fun allTemplates(links: List<String>): List<ConfigTemplate> =
+        links.mapNotNull { templateOf(it) }
+            .groupBy { it.sni.lowercase() }
+            .entries
+            .sortedByDescending { it.value.size }
+            .mapNotNull { it.value.firstOrNull() }
 
     /** The backend most of the pool points at is the one most likely alive. */
     fun bestTemplate(links: List<String>): ConfigTemplate? {

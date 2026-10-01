@@ -219,6 +219,7 @@ fun MainScreen(
                         MainRootTab.Internal -> MainInternalScreen(
                             isRunning = uiState.isRunning,
                             onDeepConnect = { onAction(MainAction.DeepConnect) },
+                            onStrongScan = { onAction(MainAction.StrongScan) },
                             onCancel = { onAction(MainAction.CancelAutoConnect) },
                             onDisconnect = { onAction(MainAction.ToggleService) },
                         )

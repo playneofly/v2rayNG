@@ -52,6 +52,9 @@ sealed interface MainAction {
 
     /** FILTERNET: the internal tab's last resort - hunt clean IPs endlessly. */
     data object DeepConnect : MainAction
+
+    /** The strongest-scan escape hatch, offered when a tunnel is unproven. */
+    data object StrongScan : MainAction
     data object CancelTesting : MainAction
     data object RemoveAllServers : MainAction
     data object RemoveDuplicateServers : MainAction

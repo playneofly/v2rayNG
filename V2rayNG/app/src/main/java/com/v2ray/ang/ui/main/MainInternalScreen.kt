@@ -27,12 +27,9 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.BasicTextField
-import androidx.compose.foundation.text.KeyboardActions
-import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
-import androidx.compose.material3.LocalTextStyle
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -47,15 +44,12 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.text.input.ImeAction
-import androidx.compose.ui.text.input.KeyboardType
-import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.v2ray.ang.R
 import com.v2ray.ang.handler.BundledData
@@ -83,16 +77,19 @@ import kotlinx.coroutines.withContext
 internal fun MainInternalScreen(
     isRunning: Boolean,
     onDeepConnect: () -> Unit,
+    onStrongScan: () -> Unit,
     onCancel: () -> Unit,
     onDisconnect: () -> Unit,
 ) {
     val context = LocalContext.current
-    var unlocked by remember { mutableStateOf(InternalVault.isUnlocked() || InternalVault.wasUnlockedBefore()) }
-
-    if (!unlocked) {
-        LockScreen(onUnlocked = { unlocked = true })
-        return
-    }
+    // FILTERNET: the password gate is gone.
+    //
+    // It guarded a bundle of private Worker credentials that could burn
+    // somebody's Cloudflare quota. This build hunts public CDN addresses with
+    // configs that are already in the repo, so there is nothing behind the
+    // lock worth locking - it was only costing the user a step. InternalVault
+    // itself stays: if an internal.bin is ever shipped again it still opens
+    // it, and the deep hunt still prefers those credentials when present.
 
     val scan by CleanIpScanner.progress.collectAsStateWithLifecycle()
     val busy = scan.running
@@ -102,6 +99,7 @@ internal fun MainInternalScreen(
     // fighting over the same service.
     val tunnelOwner by FilternetMode.owner.collectAsStateWithLifecycle()
     val connectedVia by CleanIpScanner.connectedVia.collectAsStateWithLifecycle()
+    val quality by CleanIpScanner.quality.collectAsStateWithLifecycle()
     val minePending = isRunning && tunnelOwner == FilternetMode.Owner.INTERNAL
     val scope = rememberCoroutineScope()
     var blockReport by remember { mutableStateOf<CleanIpScanner.BlockReport?>(null) }
@@ -141,22 +139,6 @@ internal fun MainInternalScreen(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
-            Surface(
-                modifier = Modifier.clickable {
-                    InternalVault.lock()
-                    unlocked = false
-                },
-                shape = CircleShape,
-                color = MaterialTheme.colorScheme.surfaceContainerHighest,
-                contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
-            ) {
-                Text(
-                    text = stringResource(R.string.fn_internal_lock),
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(horizontal = 11.dp, vertical = 5.dp),
-                )
-            }
         }
 
         Spacer(Modifier.height(16.dp))
@@ -173,6 +155,16 @@ internal fun MainInternalScreen(
                 }
             },
         )
+
+        // ── the "it says connected but nothing loads" escape hatch ──────
+        // Only when a tunnel is up that nothing ever proved. A connection
+        // that passed the real test does not get this button, because there
+        // is nothing for it to fix.
+        val strongRunning = scan.running && scan.stage == CleanIpScanner.Stage.STRONG
+        if (minePending && quality == CleanIpScanner.Quality.UNVERIFIED) {
+            Spacer(Modifier.height(12.dp))
+            StrongScanCard(running = strongRunning, onClick = onStrongScan)
+        }
 
         if (minePending || busy) {
             Spacer(Modifier.height(10.dp))
@@ -214,6 +206,20 @@ internal fun MainInternalScreen(
 
         StageList(scan = scan, isRunning = minePending)
 
+        // ── addresses, as they are probed ────────────────────────────────
+        // Directly under the stage list on purpose: this is what the user
+        // watches while the hunt runs, so it must not sit below two cards
+        // they would have to scroll past.
+        if (scan.recent.isNotEmpty()) {
+            Spacer(Modifier.height(12.dp))
+            ProbeList(
+                items = scan.recent,
+                alive = scan.alive,
+                probed = scan.probed,
+                scanning = minePending,
+            )
+        }
+
         Spacer(Modifier.height(12.dp))
 
         // ── what this build can do with no network ───────────────────────
@@ -242,13 +248,7 @@ internal fun MainInternalScreen(
             },
         )
 
-        Spacer(Modifier.height(12.dp))
-
-        // ── the live address list ────────────────────────────────────────
-        if (scan.recent.isNotEmpty()) {
-            ProbeList(scan.recent)
-            Spacer(Modifier.height(16.dp))
-        }
+        Spacer(Modifier.height(16.dp))
     }
 }
 
@@ -310,17 +310,66 @@ private fun MainModeHoldsTunnel() {
 /* ═══════════════════════ live address list ═══════════════════════ */
 
 @Composable
-private fun ProbeList(items: List<CleanIpScanner.Probe>) {
+private fun ProbeList(
+    items: List<CleanIpScanner.Probe>,
+    alive: Int,
+    probed: Int,
+    scanning: Boolean,
+) {
     Surface(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(FilternetTokens.RadiusMedium),
         color = MaterialTheme.colorScheme.surfaceContainer,
         contentColor = MaterialTheme.colorScheme.onSurface,
         border = androidx.compose.foundation.BorderStroke(
-            1.dp, MaterialTheme.colorScheme.outlineVariant,
+            1.dp,
+            if (scanning) FilternetTokens.Mint.copy(alpha = 0.45f)
+            else MaterialTheme.colorScheme.outlineVariant,
         ),
     ) {
         Column(Modifier.padding(vertical = 8.dp)) {
+            // ── live tally ───────────────────────────────────────────────
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 14.dp, vertical = 6.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                if (scanning) {
+                    val pulse = rememberInfiniteTransition(label = "probePulse")
+                    val a by pulse.animateFloat(
+                        initialValue = 0.35f,
+                        targetValue = 1f,
+                        animationSpec = infiniteRepeatable(
+                            animation = tween(700, easing = FastOutSlowInEasing),
+                            repeatMode = RepeatMode.Reverse,
+                        ),
+                        label = "probePulseAlpha",
+                    )
+                    Canvas(Modifier.size(8.dp)) {
+                        drawCircle(color = FilternetTokens.Mint.copy(alpha = a))
+                    }
+                    Spacer(Modifier.width(8.dp))
+                }
+                Text(
+                    text = stringResource(
+                        if (scanning) R.string.fn_probe_live_title
+                        else R.string.fn_probe_done_title,
+                    ),
+                    style = MaterialTheme.typography.labelLarge,
+                    color = MaterialTheme.colorScheme.onSurface,
+                )
+                Spacer(Modifier.weight(1f))
+                Text(
+                    text = stringResource(R.string.fn_probe_tally, alive, probed),
+                    style = MaterialTheme.typography.labelMedium,
+                    color = FilternetTokens.Mint,
+                )
+            }
+            HorizontalDivider(
+                modifier = Modifier.padding(horizontal = 14.dp, vertical = 2.dp),
+                color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f),
+            )
             items.take(50).forEach { p ->
                 Row(
                     modifier = Modifier
@@ -552,149 +601,66 @@ private fun OfflineDataRow(labelRes: Int, value: String) {
 
 /* ═══════════════════════════ lock screen ═══════════════════════════ */
 
+
+/* ═══════════════════════════ the orb ═══════════════════════════ */
+
+/**
+ * FILTERNET: offered only when the live tunnel was never proven to work.
+ *
+ * Deliberately wordy. The user has a tunnel that claims to be connected and
+ * may be carrying nothing, and the only way they can tell is to go and try
+ * it. So the card says exactly that, then offers the strongest scan.
+ */
 @Composable
-private fun LockScreen(onUnlocked: () -> Unit) {
-    val context = LocalContext.current
-    val scope = rememberCoroutineScope()
-    var password by remember { mutableStateOf("") }
-    var error by remember { mutableStateOf(false) }
-    var checking by remember { mutableStateOf(false) }
-
-    fun attempt() {
-        if (checking || password.isBlank()) return
-        checking = true
-        error = false
-        scope.launch {
-            // Key derivation is deliberately slow, so keep it off the main thread.
-            val ok = withContext(Dispatchers.Default) {
-                InternalVault.unlock(context, password.trim())
-            }
-            checking = false
-            if (ok) onUnlocked() else { error = true; password = "" }
-        }
-    }
-
-    Column(
+private fun StrongScanCard(running: Boolean, onClick: () -> Unit) {
+    val tint = if (running) FilternetTokens.Accent else FilternetTokens.Amber
+    Surface(
         modifier = Modifier
-            .fillMaxSize()
-            .padding(horizontal = 28.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center,
+            .fillMaxWidth()
+            .clickable { onClick() },
+        shape = RoundedCornerShape(FilternetTokens.RadiusMedium),
+        color = tint.copy(alpha = 0.10f),
+        contentColor = tint,
+        border = androidx.compose.foundation.BorderStroke(1.dp, tint.copy(alpha = 0.40f)),
     ) {
-        Box(
-            modifier = Modifier
-                .size(74.dp)
-                .background(
-                    Brush.linearGradient(
-                        listOf(FilternetTokens.Accent, FilternetTokens.Accent2)
-                    ),
-                    CircleShape,
-                ),
-            contentAlignment = Alignment.Center,
-        ) {
-            Icon(
-                painter = painterResource(R.drawable.ic_shield_24dp),
-                contentDescription = null,
-                modifier = Modifier.size(34.dp),
-                tint = Color.White,
-            )
-        }
-
-        Spacer(Modifier.height(18.dp))
-
-        Text(
-            text = stringResource(R.string.fn_internal_locked_title),
-            style = MaterialTheme.typography.titleLarge,
-            color = MaterialTheme.colorScheme.onSurface,
-        )
-        Spacer(Modifier.height(6.dp))
-        Text(
-            text = stringResource(R.string.fn_internal_locked_sub),
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            textAlign = TextAlign.Center,
-        )
-
-        Spacer(Modifier.height(22.dp))
-
-        Surface(
-            modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(FilternetTokens.RadiusMedium),
-            color = MaterialTheme.colorScheme.surfaceContainer,
-            contentColor = MaterialTheme.colorScheme.onSurface,
-            border = androidx.compose.foundation.BorderStroke(
-                1.dp,
-                if (error) FilternetTokens.Rose else MaterialTheme.colorScheme.outlineVariant,
-            ),
-        ) {
-            Box(
-                modifier = Modifier.padding(horizontal = 14.dp, vertical = 14.dp),
-                contentAlignment = Alignment.CenterStart,
-            ) {
-                if (password.isEmpty()) {
-                    Text(
-                        text = stringResource(R.string.fn_internal_password),
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.outline,
+        Column(Modifier.padding(horizontal = 16.dp, vertical = 13.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                if (running) {
+                    val pulse = rememberInfiniteTransition(label = "strongPulse")
+                    val a by pulse.animateFloat(
+                        initialValue = 0.3f,
+                        targetValue = 1f,
+                        animationSpec = infiniteRepeatable(
+                            animation = tween(800, easing = FastOutSlowInEasing),
+                            repeatMode = RepeatMode.Reverse,
+                        ),
+                        label = "strongPulseAlpha",
                     )
+                    Canvas(Modifier.size(9.dp)) {
+                        drawCircle(color = tint.copy(alpha = a))
+                    }
+                    Spacer(Modifier.width(9.dp))
                 }
-                BasicTextField(
-                    value = password,
-                    onValueChange = { password = it; error = false },
-                    singleLine = true,
-                    visualTransformation = PasswordVisualTransformation(),
-                    keyboardOptions = KeyboardOptions(
-                        keyboardType = KeyboardType.Password,
-                        imeAction = ImeAction.Go,
-                    ),
-                    keyboardActions = KeyboardActions(onGo = { attempt() }),
-                    textStyle = LocalTextStyle.current.merge(
-                        MaterialTheme.typography.bodyMedium.copy(
-                            color = MaterialTheme.colorScheme.onSurface
-                        )
-                    ),
-                    cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
-                    modifier = Modifier.fillMaxWidth(),
-                )
-            }
-        }
-
-        if (error) {
-            Spacer(Modifier.height(8.dp))
-            Text(
-                text = stringResource(R.string.fn_internal_wrong),
-                style = MaterialTheme.typography.bodySmall,
-                color = FilternetTokens.Rose,
-            )
-        }
-
-        Spacer(Modifier.height(14.dp))
-
-        Surface(
-            modifier = Modifier
-                .fillMaxWidth()
-                .clickable(enabled = !checking) { attempt() },
-            shape = RoundedCornerShape(FilternetTokens.RadiusMedium),
-            color = Color.Transparent,
-        ) {
-            Box(
-                modifier = Modifier.background(FilternetAccentBrush),
-                contentAlignment = Alignment.Center,
-            ) {
                 Text(
                     text = stringResource(
-                        if (checking) R.string.fn_internal_checking else R.string.fn_internal_enter
+                        if (running) R.string.fn_strong_running else R.string.fn_strong_title,
                     ),
                     style = MaterialTheme.typography.titleSmall,
-                    color = Color.White,
-                    modifier = Modifier.padding(vertical = 14.dp),
+                    color = tint,
                 )
             }
+            Spacer(Modifier.height(5.dp))
+            Text(
+                text = stringResource(
+                    if (running) R.string.fn_strong_running_desc else R.string.fn_strong_desc,
+                ),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                lineHeight = 17.sp,
+            )
         }
     }
 }
-
-/* ═══════════════════════════ the orb ═══════════════════════════ */
 
 @Composable
 private fun DeepConnectOrb(
@@ -786,6 +752,7 @@ private fun DeepConnectOrb(
                     CleanIpScanner.Stage.SEEDING -> R.string.fn_stage_seeding
                     CleanIpScanner.Stage.SWEEPING -> R.string.fn_stage_sweeping
                     CleanIpScanner.Stage.MEASURING -> R.string.fn_stage_measuring
+                    CleanIpScanner.Stage.STRONG -> R.string.fn_stage_strong
                     CleanIpScanner.Stage.IDLE -> null
                 }
                 if (busy && stageLabel != null) {

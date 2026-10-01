@@ -757,4 +757,14 @@
     <string name="fn_internal_disconnect">Disconnect</string>
     <string name="fn_src_memory">Addresses that worked here · %1$s</string>
     <string name="fn_src_ircf">ircf.space for your operator · %1$s</string>
+    <string name="fn_probe_live_title">Scanning addresses</string>
+    <string name="fn_probe_done_title">Scanned addresses</string>
+    <string name="fn_probe_tally">%1$d live / %2$d</string>
+    <string name="fn_deep_committed">No address passed the full test. Connecting to the fastest one found.</string>
+    <string name="fn_strong_title">Deep scan</string>
+    <string name="fn_strong_desc">Now go and test the VPN connection. If it did not work and nothing loaded, tap this so the strongest possible scan is performed.</string>
+    <string name="fn_strong_running">Deep scan running</string>
+    <string name="fn_strong_running_desc">Trying every worker domain and every Cloudflare port, one address at a time. It will not stop until it finds one that genuinely works. Tap to stop.</string>
+    <string name="fn_strong_found">A working address was found and verified. Switching over.</string>
+    <string name="fn_stage_strong">Strongest scan</string>
 </resources>

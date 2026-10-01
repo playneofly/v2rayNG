@@ -293,6 +293,7 @@ class MainViewModel(
             MainAction.AutoConnect -> Unit
             MainAction.CancelAutoConnect -> Unit
             MainAction.DeepConnect -> Unit
+            MainAction.StrongScan -> Unit
             MainAction.CancelTesting -> cancelAllPing()
             MainAction.RemoveAllServers -> removeAllServerAsync()
             MainAction.RemoveDuplicateServers -> removeDuplicateServerAsync()
