@@ -1,5 +1,7 @@
 package com.v2ray.ang.ui.main
 
+import com.v2ray.ang.handler.InternalVault
+import com.v2ray.ang.handler.CleanIpScanner
 import kotlinx.coroutines.delay
 import com.v2ray.ang.handler.ServerPoolManager
 import androidx.compose.runtime.getValue
@@ -128,15 +130,6 @@ class MainActivity : HelperBaseComponentActivity() {
         // FILTERNET: start or stop the "connect when an app opens" watcher.
         com.v2ray.ang.service.AppTriggerService.sync(this)
 
-        // FILTERNET: launcher icon follows the tunnel state (opt-in).
-        lifecycleScope.launch {
-            mainViewModel.uiState.collect { state ->
-                com.v2ray.ang.handler.DynamicIconManager.apply(
-                    applicationContext, state.isRunning,
-                )
-            }
-        }
-
         checkAndRequestPermission(PermissionType.POST_NOTIFICATIONS) {}
     }
 
@@ -212,6 +205,7 @@ class MainActivity : HelperBaseComponentActivity() {
                     MainAction.ToggleService -> handleFabAction()
                     MainAction.AutoConnect -> handleAutoConnect()
                     MainAction.CancelAutoConnect -> cancelAutoConnect()
+                    MainAction.DeepConnect -> handleDeepConnect()
                     MainAction.TestCurrentServer -> handleLayoutTestClick()
                     MainAction.ImportQRcode -> importQRcode()
                     MainAction.ImportClipboard -> importClipboard()
@@ -338,6 +332,57 @@ class MainActivity : HelperBaseComponentActivity() {
     private var autoConnectJob: kotlinx.coroutines.Job? = null
 
     /**
+     * FILTERNET: the internal tab's last resort.
+     *
+     * Takes the backend that most of the pool points at, then hunts Cloudflare's
+     * entire address space for an edge that still answers for it. One Worker is
+     * reachable through about a million and a half addresses, so this keeps
+     * going for as long as the user lets it - there is no attempt limit.
+     *
+     * Survivors of the TLS screen are imported and then proved for real by the
+     * core, exactly like the normal flow, because a handshake alone has already
+     * fooled us once.
+     */
+    private fun handleDeepConnect() {
+        if (autoConnectJob?.isActive == true) return
+        autoConnectJob = lifecycleScope.launch {
+            try {
+                val links = withContext(Dispatchers.IO) {
+                    val priv = InternalVault.configs()
+                    priv.ifEmpty { ServerPoolManager.cachedLinks(applicationContext) }
+                }
+                val template = CleanIpScanner.bestTemplate(links)
+                if (template == null) {
+                    LogUtil.w(AppConfig.TAG, "DeepConnect: no scannable config in the pool")
+                    CleanIpScanner.publishGaveUp()
+                    return@launch
+                }
+
+                val ready = CleanIpScanner.hunt(template)
+                if (!ready) return@launch
+
+                // Prove them with the core, then connect to the winner.
+                mainViewModel.connectBestServer()
+                val deadline = System.currentTimeMillis() + MEASURE_TIMEOUT_MS
+                while (System.currentTimeMillis() < deadline) {
+                    delay(500L)
+                    val s = mainViewModel.uiState.value
+                    if (s.isRunning) {
+                        CleanIpScanner.publishFound(template.sni)
+                        return@launch
+                    }
+                    if (!s.isFindingBest && !s.isTesting) break
+                }
+                mainViewModel.onAction(MainAction.CancelTesting)
+                CleanIpScanner.publishGaveUp()
+            } catch (e: Exception) {
+                LogUtil.e(AppConfig.TAG, "DeepConnect failed", e)
+                CleanIpScanner.publishGaveUp()
+            }
+        }
+    }
+
+    /**
      * FILTERNET: lets the user back out of a search that is taking too long.
      * Cancels the coroutine, the bulk measurement and the amber state.
      */
@@ -346,6 +391,7 @@ class MainActivity : HelperBaseComponentActivity() {
         autoConnectJob = null
         mainViewModel.onAction(MainAction.CancelTesting)
         ServerPoolManager.publishIdle()
+        CleanIpScanner.reset()
     }
 
     private fun startV2Ray() {

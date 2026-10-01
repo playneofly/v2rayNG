@@ -54,9 +54,6 @@ internal fun FeatureSettingsScreen() {
     var triggerOn by remember {
         mutableStateOf(MmkvManager.decodeSettingsBool(AppConfig.PREF_FN_APP_TRIGGER_ENABLED, false))
     }
-    var dynamicIcon by remember {
-        mutableStateOf(MmkvManager.decodeSettingsBool(AppConfig.PREF_FN_DYNAMIC_ICON, false))
-    }
     var hasUsage by remember { mutableStateOf(AppTriggerService.hasUsagePermission(context)) }
     var chosen by remember { mutableStateOf(AppTriggerService.watchedPackages(context)) }
     var apps by remember { mutableStateOf<List<AppEntry>>(emptyList()) }
@@ -134,17 +131,6 @@ internal fun FeatureSettingsScreen() {
             }
         }
 
-        Spacer(Modifier.height(10.dp))
-
-        ToggleRow(
-            title = stringResource(R.string.fn_dynamic_icon),
-            subtitle = stringResource(R.string.fn_dynamic_icon_sub),
-            checked = dynamicIcon,
-            onChange = {
-                dynamicIcon = it
-                MmkvManager.encodeSettings(AppConfig.PREF_FN_DYNAMIC_ICON, it)
-            },
-        )
 
         if (triggerOn) {
             Spacer(Modifier.height(14.dp))

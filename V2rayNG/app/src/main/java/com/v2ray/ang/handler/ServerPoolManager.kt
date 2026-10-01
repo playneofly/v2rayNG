@@ -388,6 +388,13 @@ object ServerPoolManager {
      * short-list was handed over and nothing ever cleared it, so the button
      * stayed amber for the rest of the session and refused to be tapped.
      */
+    /** Raw links from the cached pool, for the clean-IP scanner to work from. */
+    fun cachedLinks(context: android.content.Context): List<String> = runCatching {
+        val cache = java.io.File(context.filesDir, CACHE_FILE)
+        if (!cache.exists()) return@runCatching emptyList()
+        parse(cache.readText()).map { it.raw }
+    }.getOrDefault(emptyList())
+
     fun publishIdle() {
         _phase.value = Phase.Idle
     }

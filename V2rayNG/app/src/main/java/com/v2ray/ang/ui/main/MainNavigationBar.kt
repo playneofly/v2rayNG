@@ -37,6 +37,8 @@ internal enum class MainRootTab(
     // FILTERNET: the app picks servers on its own now, so there is no servers
     // tab any more - only home, traffic and settings.
     Home(R.string.app_name, MainNavigationGlyphType.Home),
+    // FILTERNET: the password-locked area with the endless IP hunt.
+    Internal(R.string.fn_internal_title, MainNavigationGlyphType.Servers),
     Stats(R.string.fn_traffic_title, MainNavigationGlyphType.Stats),
     Settings(R.string.title_settings, MainNavigationGlyphType.Settings),
 }

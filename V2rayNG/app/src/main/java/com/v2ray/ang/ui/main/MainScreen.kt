@@ -216,6 +216,12 @@ fun MainScreen(
                             onCancelAutoConnect = { onAction(MainAction.CancelAutoConnect) },
                         )
 
+                        MainRootTab.Internal -> MainInternalScreen(
+                            isRunning = uiState.isRunning,
+                            onDeepConnect = { onAction(MainAction.DeepConnect) },
+                            onCancel = { onAction(MainAction.CancelAutoConnect) },
+                        )
+
                         MainRootTab.Stats -> MainTrafficScreen()
                         MainRootTab.Settings -> MainSettingsHub(onNavigate)
                     }

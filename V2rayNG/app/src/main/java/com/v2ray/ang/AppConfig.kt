@@ -91,9 +91,6 @@ object AppConfig {
     /** FILTERNET: auto-connect when one of the chosen apps is opened. */
     const val PREF_FN_APP_TRIGGER_ENABLED = "pref_fn_app_trigger_enabled"
     const val PREF_FN_APP_TRIGGER_APPS = "pref_fn_app_trigger_apps"
-
-    /** FILTERNET: swap the launcher icon while connected. */
-    const val PREF_FN_DYNAMIC_ICON = "pref_fn_dynamic_icon"
     const val PREF_FN_BATTERY_SAVER = "pref_fn_battery_saver"
 
     /**

@@ -103,8 +103,6 @@ internal fun MainHomeScreen(
     var publicIp by remember { mutableStateOf<String?>(null) }
     var exitCountry by remember { mutableStateOf<String?>(null) }
     var reach by remember { mutableStateOf(NetworkDiagnostics.Reach.UNKNOWN) }
-    var serviceResults by remember { mutableStateOf<Map<String, Boolean>?>(null) }
-    var showDiagnostics by remember { mutableStateOf(false) }
     var showRecap by remember { mutableStateOf(false) }
     var receipt by remember { mutableStateOf<SessionStatsManager.Session?>(null) }
     var anomaly by remember { mutableStateOf(false) }
@@ -210,16 +208,6 @@ internal fun MainHomeScreen(
         reach = NetworkDiagnostics.checkReachability()
     }
 
-    // FILTERNET: live service checklist, refreshed while connected.
-    LaunchedEffect(isRunning) {
-        if (!isRunning) { serviceResults = null; return@LaunchedEffect }
-        delay(3500L)
-        while (isRunning) {
-            serviceResults = NetworkDiagnostics.quickServiceCheck()
-            delay(90_000L)
-        }
-    }
-
     // FILTERNET: this user's own speed history is the only fair benchmark.
     LaunchedEffect(speed, isRunning) {
         anomaly = isRunning &&
@@ -265,8 +253,15 @@ internal fun MainHomeScreen(
                     isRunning -> onToggleService()
 
                     busy -> {
+                        // FILTERNET: cancelling must work on the first tap, and
+                        // a second tap is a hard reset in case anything is still
+                        // holding the amber state.
                         pendingConnection = false
                         onCancelAutoConnect()
+                        scope.launch {
+                            delay(1500L)
+                            if (busy) onCancelAutoConnect()
+                        }
                     }
 
                     coreState == CoreState.Offline -> Unit
@@ -323,43 +318,16 @@ internal fun MainHomeScreen(
             CarrierCompareCard(stats = carrierStats, current = carrierName)
         }
 
-        if (isRunning) {
-            Spacer(Modifier.height(10.dp))
-            ServiceChecklist(
-                results = serviceResults,
-                onRefresh = { serviceResults = null },
-            )
-        }
-
         Spacer(Modifier.height(10.dp))
 
-        Row(
+        ActionTile(
             modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            ActionTile(
-                modifier = Modifier.weight(1f),
-                iconRes = R.drawable.ic_warning_24dp,
-                label = stringResource(R.string.fn_diag_title),
-                onClick = { showDiagnostics = true },
-            )
-            ActionTile(
-                modifier = Modifier.weight(1f),
-                iconRes = R.drawable.ic_insights_24dp,
-                label = stringResource(R.string.fn_recap_title),
-                onClick = { showRecap = true },
-            )
-        }
+            iconRes = R.drawable.ic_insights_24dp,
+            label = stringResource(R.string.fn_recap_title),
+            onClick = { showRecap = true },
+        )
 
         Spacer(Modifier.height(16.dp))
-    }
-
-    if (showDiagnostics) {
-        DiagnosticsSheet(
-            isRunning = isRunning,
-            onDismiss = { showDiagnostics = false },
-            onFindBetterServer = onAutoConnect,
-        )
     }
 
     if (showRecap) {
