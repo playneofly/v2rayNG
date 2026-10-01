@@ -112,6 +112,9 @@ class MainViewModel(
 
     // FILTERNET: set while the "Best" button flow is waiting for bulk test results.
     private var pendingBestSelection = false
+
+    /** FILTERNET: completed when one measurement round reports back. */
+    private var roundWaiter: kotlinx.coroutines.CompletableDeferred<Unit>? = null
     private var onBestServerPicked: ((String) -> Unit)? = null
 
     private val initialPageReady = CompletableDeferred<Unit>()
@@ -824,24 +827,44 @@ class MainViewModel(
     }
 
     // ---------- Testing ----------
-    fun cancelAllPing() {
-        // FILTERNET: whatever cancels a measurement must also release EVERY
-        // flag the home button looks at.
-        //
-        // This used to clear isTesting only. isFindingBest stayed true, waiting
-        // for a cancel acknowledgement from thetest process that never came
-        // when the job had already been killed locally - so the button span
-        // amber forever and could not be stopped.
-        runCatching { com.v2ray.ang.handler.ServerPoolManager.publishIdle() }
+    /**
+     * FILTERNET: wipes a measurement that is in flight, WITHOUT touching the
+     * intent behind it.
+     *
+     * Every bulk test starts by clearing the previous one, so this runs on the
+     * happy path too. An earlier version also reset [pendingBestSelection] and
+     * isFindingBest here - which meant connectBestServer() set those flags and
+     * then immediately erased them one call later, so the winning server was
+     * never applied and the app stopped connecting entirely.
+     *
+     * Intent belongs to [abortSearch]. This one only cleans up machinery.
+     */
+    private fun clearPreviousTest() {
         bulkTestJob?.cancel()
         bulkTestJob = null
-        pendingBestSelection = false
         testRequests.cancelBulk()
         testRequests.invalidateCurrent()
         cancelPendingTestResults()
-        _uiState.update { it.copy(isFindingBest = false) }
         resetTestStatus()
         dataSource.cancelAllPing()
+    }
+
+    /**
+     * FILTERNET: the user asked to stop. Clears the machinery *and* the intent,
+     * so nothing is left holding the button in its working state.
+     */
+    fun cancelAllPing() {
+        abortSearch()
+    }
+
+    fun abortSearch() {
+        runCatching { com.v2ray.ang.handler.ServerPoolManager.publishIdle() }
+        runCatching { com.v2ray.ang.handler.CleanIpScanner.stop() }
+        pendingBestSelection = false
+        roundWaiter?.complete(Unit)
+        roundWaiter = null
+        clearPreviousTest()
+        _uiState.update { it.copy(isFindingBest = false) }
     }
 
     private fun resetTestStatus() {
@@ -855,7 +878,7 @@ class MainViewModel(
     }
 
     fun testAllRealPing(onlyTcp: Boolean = false) {
-        cancelAllPing()
+        clearPreviousTest()
         val groupId = uiState.value.selectedGroupId
         val servers = currentServers()
         if (servers.isEmpty()) {
@@ -985,9 +1008,57 @@ class MainViewModel(
         testEveryServer(allGuids)
     }
 
+    /**
+     * FILTERNET: measures exactly [guids] and reports the fastest one that
+     * genuinely answered.
+     *
+     * Deliberately does not use the pendingBestSelection flag that the older
+     * flow relied on. That flag lived across two call sites and a service
+     * round-trip, which is precisely how it ended up being erased mid-flight.
+     * Here the caller simply suspends until the round is over.
+     *
+     * @return guid of the winner, or null when nothing answered in time.
+     */
+    suspend fun measureRound(guids: List<String>, timeoutMs: Long = 60_000L): String? {
+        if (guids.isEmpty()) return null
+        clearPreviousTest()
+
+        val waiter = kotlinx.coroutines.CompletableDeferred<Unit>()
+        roundWaiter = waiter
+
+        val request = testRequests.beginBulk(uiState.value.selectedGroupId)
+        _uiState.update { it.copy(isTesting = true, status = MainStatus.Testing) }
+        withContext(ioDispatcher) { dataSource.clearAllTestDelayResults(guids) }
+        dataSource.sendMsg2TestService(
+            TestServiceMessage(
+                key = AppConfig.MSG_MEASURE_CONFIG_START,
+                subscriptionId = uiState.value.selectedGroupId,
+                serverGuids = guids,
+                onlyTcp = false,
+            ),
+            request.id,
+        )
+
+        kotlinx.coroutines.withTimeoutOrNull(timeoutMs) { waiter.await() }
+        roundWaiter = null
+
+        return withContext(ioDispatcher) {
+            guids.mapNotNull { guid ->
+                val d = MmkvManager.decodeServerAffiliationInfo(guid)?.testDelayMillis ?: 0L
+                if (d > 0L) guid to d else null
+            }.minByOrNull { it.second }?.first
+        }
+    }
+
+    /** FILTERNET: selects a server without restarting anything. */
+    fun selectServerQuietly(guid: String) {
+        runCatching { MmkvManager.setSelectServer(guid) }
+        _uiState.update { it.copy(selectedGuid = guid) }
+    }
+
     /** FILTERNET: bulk real-ping across an explicit guid list (ignores group scoping). */
     private fun testEveryServer(guids: List<String>) {
-        cancelAllPing()
+        clearPreviousTest()
         val groupId = uiState.value.selectedGroupId
         mutableServerGroupState(groupId).update { current ->
             current.copy(
@@ -1060,6 +1131,8 @@ class MainViewModel(
 
     private fun onTestsFinished(requestId: String) {
         if (testRequests.completeBulk(requestId) == null) return
+        roundWaiter?.complete(Unit)
+        roundWaiter = null
         resetTestStatus()
         if (pendingBestSelection) {
             pendingBestSelection = false

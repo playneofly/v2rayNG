@@ -77,9 +77,11 @@ internal fun MainInternalScreen(
         return
     }
 
-    val scanPhase by CleanIpScanner.phase.collectAsStateWithLifecycle()
-    val busy = scanPhase is CleanIpScanner.Phase.Scanning ||
-        scanPhase is CleanIpScanner.Phase.Proving
+    val scan by CleanIpScanner.progress.collectAsStateWithLifecycle()
+    val busy = scan.running
+    val scope = rememberCoroutineScope()
+    var blockReport by remember { mutableStateOf<CleanIpScanner.BlockReport?>(null) }
+    var classifying by remember { mutableStateOf(false) }
 
     Column(
         modifier = Modifier
@@ -130,47 +132,146 @@ internal fun MainInternalScreen(
 
         Spacer(Modifier.height(14.dp))
 
-        StageList(phase = scanPhase, isRunning = isRunning)
+        StageList(scan = scan, isRunning = isRunning)
 
-        Spacer(Modifier.height(14.dp))
+        Spacer(Modifier.height(12.dp))
 
-        Surface(
-            modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(FilternetTokens.RadiusMedium),
-            color = MaterialTheme.colorScheme.surfaceContainer,
-            contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
-            border = androidx.compose.foundation.BorderStroke(
-                1.dp, MaterialTheme.colorScheme.outlineVariant,
-            ),
-        ) {
-            Column(Modifier.padding(13.dp)) {
-                Text(
-                    text = stringResource(
-                        R.string.fn_internal_space,
-                        faDigits(CleanIpScanner.addressSpace() / 1000),
-                    ),
-                    style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.onSurface,
-                )
-                Spacer(Modifier.height(4.dp))
-                Text(
-                    text = stringResource(R.string.fn_internal_explain),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                val privateCount = InternalVault.configs().size
-                if (privateCount > 0) {
-                    Spacer(Modifier.height(6.dp))
+        // ── what kind of block is this? ──────────────────────────────────
+        BlockCheckCard(
+            report = blockReport,
+            busy = classifying,
+            onRun = {
+                classifying = true
+                blockReport = null
+                scope.launch {
+                    val links = withContext(Dispatchers.IO) {
+                        InternalVault.configs().ifEmpty {
+                            com.v2ray.ang.handler.ServerPoolManager.poolLinks(context)
+                        }
+                    }
+                    val tpl = CleanIpScanner.bestTemplate(links)
+                    blockReport = if (tpl == null) null
+                    else withContext(Dispatchers.IO) { CleanIpScanner.classifyBlock(tpl) }
+                    classifying = false
+                }
+            },
+        )
+
+        Spacer(Modifier.height(12.dp))
+
+        // ── the live address list ────────────────────────────────────────
+        if (scan.recent.isNotEmpty()) {
+            ProbeList(scan.recent)
+            Spacer(Modifier.height(16.dp))
+        }
+    }
+}
+
+/* ═══════════════════════ live address list ═══════════════════════ */
+
+@Composable
+private fun ProbeList(items: List<CleanIpScanner.Probe>) {
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(FilternetTokens.RadiusMedium),
+        color = MaterialTheme.colorScheme.surfaceContainer,
+        contentColor = MaterialTheme.colorScheme.onSurface,
+        border = androidx.compose.foundation.BorderStroke(
+            1.dp, MaterialTheme.colorScheme.outlineVariant,
+        ),
+    ) {
+        Column(Modifier.padding(vertical = 8.dp)) {
+            items.take(50).forEach { p ->
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 14.dp, vertical = 3.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
                     Text(
-                        text = stringResource(R.string.fn_internal_private, faDigits(privateCount)),
-                        style = MaterialTheme.typography.labelSmall,
-                        color = FilternetTokens.Mint,
+                        text = if (p.alive) "✓" else "✕",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = if (p.alive) FilternetTokens.Mint else FilternetTokens.Rose,
                     )
+                    Spacer(Modifier.width(10.dp))
+                    Text(
+                        text = p.address,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = if (p.alive) MaterialTheme.colorScheme.onSurface
+                        else MaterialTheme.colorScheme.outline,
+                        modifier = Modifier.weight(1f),
+                    )
+                    if (p.alive) {
+                        Text(
+                            text = faDigits(p.ms) + " ms",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = FilternetTokens.Mint,
+                        )
+                    }
                 }
             }
         }
+    }
+}
 
-        Spacer(Modifier.height(16.dp))
+/* ═══════════════════════ block classifier ═══════════════════════ */
+
+@Composable
+private fun BlockCheckCard(
+    report: CleanIpScanner.BlockReport?,
+    busy: Boolean,
+    onRun: () -> Unit,
+) {
+    Surface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(enabled = !busy, onClick = onRun),
+        shape = RoundedCornerShape(FilternetTokens.RadiusMedium),
+        color = MaterialTheme.colorScheme.surfaceContainer,
+        contentColor = MaterialTheme.colorScheme.onSurface,
+        border = androidx.compose.foundation.BorderStroke(
+            1.dp, MaterialTheme.colorScheme.outlineVariant,
+        ),
+    ) {
+        Column(Modifier.padding(13.dp)) {
+            Text(
+                text = stringResource(
+                    if (busy) R.string.fn_block_running else R.string.fn_block_title
+                ),
+                style = MaterialTheme.typography.titleSmall,
+                color = MaterialTheme.colorScheme.onSurface,
+            )
+            Spacer(Modifier.height(3.dp))
+            val (msgRes, tint) = when (report?.type) {
+                null -> R.string.fn_block_hint to MaterialTheme.colorScheme.onSurfaceVariant
+                CleanIpScanner.BlockType.ADDRESS_BLOCKED ->
+                    R.string.fn_block_address to FilternetTokens.Mint
+                CleanIpScanner.BlockType.NAME_BLOCKED ->
+                    R.string.fn_block_name to FilternetTokens.Rose
+                CleanIpScanner.BlockType.NETWORK_BLOCKED ->
+                    R.string.fn_block_network to FilternetTokens.Amber
+                CleanIpScanner.BlockType.NOT_BLOCKED ->
+                    R.string.fn_block_none to FilternetTokens.Mint
+            }
+            Text(
+                text = stringResource(msgRes),
+                style = MaterialTheme.typography.bodySmall,
+                color = tint,
+            )
+            if (report != null) {
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    text = stringResource(
+                        R.string.fn_block_counts,
+                        faDigits(report.oursOk),
+                        faDigits(report.neutralOk),
+                        faDigits(report.tried),
+                    ),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.outline,
+                )
+            }
+        }
     }
 }
 
@@ -368,40 +469,32 @@ private fun DeepConnectOrb(isRunning: Boolean, busy: Boolean, onClick: () -> Uni
 /* ═══════════════════════════ the ladder ═══════════════════════════ */
 
 @Composable
-private fun StageList(phase: CleanIpScanner.Phase, isRunning: Boolean) {
-    val scanning = phase as? CleanIpScanner.Phase.Scanning
+private fun StageList(scan: CleanIpScanner.Progress, isRunning: Boolean) {
     Column(Modifier.fillMaxWidth()) {
         StageRow(
             index = 1,
             label = stringResource(R.string.fn_stage_normal),
             done = isRunning,
-            active = false,
+            active = scan.running,
         )
         StageRow(
             index = 2,
             label = stringResource(R.string.fn_stage_private),
             done = isRunning,
-            active = false,
+            active = scan.running,
         )
         StageRow(
             index = 3,
-            label = when {
-                scanning != null -> stringResource(
-                    R.string.fn_stage_scan_live,
-                    faDigits(scanning.probed),
-                    faDigits(scanning.found),
-                )
-                phase is CleanIpScanner.Phase.Proving -> stringResource(R.string.fn_measuring)
-                phase is CleanIpScanner.Phase.Found -> stringResource(
-                    R.string.fn_stage_scan_found, phase.address,
-                )
-                else -> stringResource(R.string.fn_stage_scan)
-            },
-            done = phase is CleanIpScanner.Phase.Found,
-            active = scanning != null || phase is CleanIpScanner.Phase.Proving,
+            label = if (scan.probed > 0) stringResource(
+                R.string.fn_stage_scan_live,
+                faDigits(scan.probed),
+                faDigits(scan.alive),
+            ) else stringResource(R.string.fn_stage_scan),
+            done = isRunning,
+            active = scan.running,
         )
 
-        if (scanning != null) {
+        if (scan.running) {
             Spacer(Modifier.height(10.dp))
             Box(
                 Modifier
@@ -409,12 +502,11 @@ private fun StageList(phase: CleanIpScanner.Phase, isRunning: Boolean) {
                     .height(5.dp)
                     .background(MaterialTheme.colorScheme.surfaceContainerHighest, CircleShape)
             ) {
-                // The hunt has no end, so the bar reports motion rather than
-                // progress - a percentage here would be a lie.
-                val f = ((scanning.probed % 400) / 400f)
+                // The hunt has no end, so the bar shows motion, not progress -
+                // a percentage here would simply be a lie.
                 Box(
                     Modifier
-                        .fillMaxWidth(f)
+                        .fillMaxWidth(((scan.probed % 400) / 400f))
                         .height(5.dp)
                         .background(FilternetAccentBrush, CircleShape)
                 )

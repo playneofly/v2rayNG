@@ -388,12 +388,32 @@ object ServerPoolManager {
      * short-list was handed over and nothing ever cleared it, so the button
      * stayed amber for the rest of the session and refused to be tapped.
      */
-    /** Raw links from the cached pool, for the clean-IP scanner to work from. */
-    fun cachedLinks(context: android.content.Context): List<String> = runCatching {
-        val cache = java.io.File(context.filesDir, CACHE_FILE)
-        if (!cache.exists()) return@runCatching emptyList()
-        parse(cache.readText()).map { it.raw }
+    /**
+     * FILTERNET: every link in the pool, downloading first when the cache is
+     * cold.
+     *
+     * The scanner used to read the cache only, which meant it had nothing to
+     * work with on a phone where the normal connect had never once succeeded -
+     * exactly the phone that needs the scanner most.
+     */
+    fun poolLinks(context: Context): List<String> = runCatching {
+        val raw = cachedOrDownload(context) ?: return@runCatching emptyList()
+        parse(raw).map { it.raw }
     }.getOrDefault(emptyList())
+
+    /**
+     * Imports the normal and private links into the pool group so the core can
+     * measure them, and returns their guids.
+     */
+    fun importForMeasurement(normal: List<String>, private: List<String>): List<String> =
+        runCatching {
+            val links = (private + normal).distinct().take(KEEP)
+            if (links.isEmpty()) return@runCatching emptyList()
+            ensureGroupExists()
+            MmkvManager.removeServerViaSubid(POOL_SUB_ID)
+            AngConfigManager.importBatchConfig(links.joinToString("\n"), POOL_SUB_ID, false)
+            MmkvManager.decodeServerList(POOL_SUB_ID)
+        }.getOrDefault(emptyList())
 
     fun publishIdle() {
         _phase.value = Phase.Idle

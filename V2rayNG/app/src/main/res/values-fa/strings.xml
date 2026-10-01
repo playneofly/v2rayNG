@@ -721,12 +721,18 @@
     <string name="fn_internal_checking">در حال بررسی…</string>
     <string name="fn_internal_wrong">رمز اشتباه است</string>
     <string name="fn_internal_deep">اسکن عمیق</string>
-    <string name="fn_internal_space">%1$s هزار آدرس برای جست‌وجو در دسترس است</string>
-    <string name="fn_internal_explain">سرورهای تو پشت یک CDN هستند و یک سرور از طریق تمام آدرس‌های آن CDN قابل دسترسی است. اسکن آن‌قدر آدرس جدید امتحان می‌کند تا دری باز شود.</string>
     <string name="fn_internal_private">%1$s کانفیگ خصوصی بارگذاری شد</string>
     <string name="fn_stage_normal">کانفیگ‌های عادی</string>
     <string name="fn_stage_private">کانفیگ‌های خصوصی</string>
     <string name="fn_stage_scan">اسکن بی‌پایان آی‌پی</string>
     <string name="fn_stage_scan_live">اسکن… %1$s بررسی، %2$s زنده</string>
     <string name="fn_stage_scan_found">پیدا شد: %1$s</string>
+    <string name="fn_block_title">اینجا چه چیزی بسته شده؟</string>
+    <string name="fn_block_running">در حال آزمایش…</string>
+    <string name="fn_block_hint">بزن تا بفهمیم آدرس فیلتر شده یا نام. حدود ۲۰ ثانیه طول می‌کشد.</string>
+    <string name="fn_block_address">آدرس‌ها فیلترند ولی نام تو نه. اسکن راه عبور پیدا می‌کند.</string>
+    <string name="fn_block_name">خودِ نام سرور تو فیلتر شده. اسکن فایده ندارد — Worker جدید لازم است.</string>
+    <string name="fn_block_network">کل CDN روی این شبکه در دسترس نیست. وای‌فای یا سیم‌کارت دیگری را امتحان کن.</string>
+    <string name="fn_block_none">اینجا چیزی بسته نیست. مشکل جای دیگری است.</string>
+    <string name="fn_block_counts">نام ما %1$s · خنثی %2$s · از %3$s تلاش</string>
 </resources>

@@ -721,12 +721,18 @@
     <string name="fn_internal_checking">Checking…</string>
     <string name="fn_internal_wrong">Wrong password</string>
     <string name="fn_internal_deep">DEEP SCAN</string>
-    <string name="fn_internal_space">%1$s thousand addresses available to search</string>
-    <string name="fn_internal_explain">Your servers live behind a CDN, and one server is reachable through every address that CDN owns. The scan keeps trying new ones until a door opens.</string>
     <string name="fn_internal_private">%1$s private configs loaded</string>
     <string name="fn_stage_normal">Normal configs</string>
     <string name="fn_stage_private">Private configs</string>
     <string name="fn_stage_scan">Endless IP scan</string>
     <string name="fn_stage_scan_live">Scanning… %1$s probed, %2$s alive</string>
     <string name="fn_stage_scan_found">Found: %1$s</string>
+    <string name="fn_block_title">What is being blocked here?</string>
+    <string name="fn_block_running">Testing…</string>
+    <string name="fn_block_hint">Tap to find out whether the address or the name is filtered. Takes about 20 seconds.</string>
+    <string name="fn_block_address">Addresses are filtered, your name is not. Scanning will find a way through.</string>
+    <string name="fn_block_name">Your server name itself is filtered. Scanning cannot help - a new Worker is needed.</string>
+    <string name="fn_block_network">The whole CDN is unreachable on this network. Try Wi-Fi or another SIM.</string>
+    <string name="fn_block_none">Nothing is blocked here. The problem is elsewhere.</string>
+    <string name="fn_block_counts">ours %1$s · neutral %2$s · of %3$s tried</string>
 </resources>

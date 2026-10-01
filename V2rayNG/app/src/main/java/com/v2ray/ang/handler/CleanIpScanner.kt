@@ -3,19 +3,21 @@ package com.v2ray.ang.handler
 import com.v2ray.ang.AppConfig
 import com.v2ray.ang.dto.entities.SubscriptionItem
 import com.v2ray.ang.util.LogUtil
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.coroutineScope
-import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
 import java.net.InetSocketAddress
 import java.net.Socket
-import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
 import javax.net.ssl.SNIHostName
 import javax.net.ssl.SSLSocket
@@ -25,45 +27,30 @@ import kotlin.random.Random
 /**
  * FILTERNET: the endless clean-IP hunt.
  *
- * ── why this works ────────────────────────────────────────────────────────
- * Our configs live on Cloudflare Workers. Cloudflare is an anycast network:
- * every one of its ~1.5 million edge IPs terminates TLS and routes onward by
- * the SNI / Host name, not by address. So one Worker is reachable through all
- * of them - a single house with a million front doors.
+ * Our configs live on Cloudflare Workers, and Cloudflare is an anycast network:
+ * every one of its ~1.5 million edge addresses terminates TLS and then routes
+ * by name, not by address. One Worker is therefore reachable through all of
+ * them - a single house with a million front doors. Filtering never closes
+ * every door, because Iranian sites sit behind the same addresses.
  *
- * Filtering never closes every door, because Iranian sites sit behind the same
- * addresses. There is always a door left open; the job is to find it.
- *
- * ── why the search never ends ─────────────────────────────────────────────
- * Addresses are drawn at random from the published ranges and the scan simply
- * keeps going until something answers or the user stops it. There is no cap.
- *
- * ── why a handshake is not enough ─────────────────────────────────────────
- * We learned this the hard way: Cloudflare answers port 443 for anything, so a
- * TCP connect proves nothing. Stage one here does a real TLS handshake *with
- * our own SNI*, which is far more selective, and the survivors are then handed
- * to the core for a genuine request. Only that counts as found.
+ * The scanner runs continuously and hands survivors to the caller in batches,
+ * so measuring one batch never stops the hunt for the next.
  */
 object CleanIpScanner {
 
-    /** Scratch group that holds the addresses currently being proven. */
     const val SCAN_SUB_ID = "filternetscanpool000000000001"
     private const val SCAN_REMARKS = "FILTERNET SCAN"
 
-    /** Addresses probed at the same time. */
     private const val PARALLEL = 32
-
-    /** A handshake slower than this is not worth keeping. */
     private const val HANDSHAKE_TIMEOUT_MS = 1500
 
-    /** How many survivors to collect before handing them to the core. */
-    private const val BATCH = 16
+    /** How many survivors make up one batch handed to the core. */
+    private const val BATCH = 12
 
-    /**
-     * Cloudflare's published IPv4 ranges. Roughly 1.5 million addresses.
-     * Refreshed from the network when possible, but these defaults mean the
-     * scanner still works during a shutdown with no internet to ask.
-     */
+    /** Entries kept for the live list. Unbounded scanning, bounded memory. */
+    private const val RECENT_LIMIT = 50
+
+    /** Cloudflare's published IPv4 ranges - about 1.5 million addresses. */
     private val CF_RANGES = listOf(
         "173.245.48.0/20", "103.21.244.0/22", "103.22.200.0/22", "103.31.4.0/22",
         "141.101.64.0/18", "108.162.192.0/18", "190.93.240.0/20", "188.114.96.0/20",
@@ -71,48 +58,52 @@ object CleanIpScanner {
         "104.24.0.0/14", "172.64.0.0/13", "131.0.72.0/22",
     )
 
-    /** Ports Cloudflare accepts for proxied traffic. */
     private val CF_PORTS = listOf(443, 2053, 2083, 2087, 2096, 8443)
 
-    sealed interface Phase {
-        data object Idle : Phase
-        data class Scanning(val probed: Int, val found: Int, val round: Int) : Phase
-        data class Proving(val count: Int) : Phase
-        data class Found(val address: String) : Phase
-        data object GaveUp : Phase
-    }
+    /** One probed address, for the live list. */
+    data class Probe(val address: String, val alive: Boolean, val ms: Long)
 
-    private val _phase = MutableStateFlow<Phase>(Phase.Idle)
-    val phase: StateFlow<Phase> = _phase.asStateFlow()
+    data class Progress(
+        val probed: Int = 0,
+        val alive: Int = 0,
+        val recent: List<Probe> = emptyList(),
+        val running: Boolean = false,
+    )
 
-    private val running = AtomicBoolean(false)
+    private val _progress = MutableStateFlow(Progress())
+    val progress: StateFlow<Progress> = _progress.asStateFlow()
 
-    fun isRunning(): Boolean = running.get()
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private var huntJob: Job? = null
+
+    /** Survivors waiting to be measured. */
+    private val pending = java.util.Collections.synchronizedList(mutableListOf<Pair<String, Int>>())
+
+    fun isRunning(): Boolean = huntJob?.isActive == true
 
     fun reset() {
-        if (!running.get()) _phase.value = Phase.Idle
+        if (!isRunning()) _progress.value = Progress()
     }
 
-    /** One decoded /n block, kept as a base address plus a size. */
+    /* ───────────────────────── address maths ───────────────────────── */
+
     private data class Block(val base: Long, val size: Long)
 
     private val blocks: List<Block> by lazy {
         CF_RANGES.mapNotNull { cidr ->
             runCatching {
                 val (ip, bits) = cidr.split("/")
-                val parts = ip.split(".").map { it.toLong() }
-                val base = (parts[0] shl 24) or (parts[1] shl 16) or (parts[2] shl 8) or parts[3]
-                Block(base, 1L shl (32 - bits.toInt()))
+                val p = ip.split(".").map { it.toLong() }
+                Block((p[0] shl 24) or (p[1] shl 16) or (p[2] shl 8) or p[3], 1L shl (32 - bits.toInt()))
             }.getOrNull()
         }
     }
 
-    /** Total addresses the scanner can draw from. */
     fun addressSpace(): Long = blocks.sumOf { it.size }
 
-    private fun randomAddress(): String {
-        val total = addressSpace()
-        var pick = Random.nextLong(total)
+    /** A uniformly random address from the published ranges. */
+    fun randomAddress(): String {
+        var pick = Random.nextLong(addressSpace())
         for (b in blocks) {
             if (pick < b.size) {
                 val v = b.base + pick
@@ -123,16 +114,25 @@ object CleanIpScanner {
         return "104.16.0.1"
     }
 
+    /** True when [ip] falls inside one of the published ranges. */
+    fun isInRange(ip: String): Boolean = runCatching {
+        val p = ip.split(".").map { it.toLong() }
+        if (p.size != 4) return@runCatching false
+        val v = (p[0] shl 24) or (p[1] shl 16) or (p[2] shl 8) or p[3]
+        blocks.any { v >= it.base && v < it.base + it.size }
+    }.getOrDefault(false)
+
+    /* ───────────────────────── the probe ───────────────────────── */
+
     /**
      * A TLS handshake to [ip] announcing [sni].
      *
-     * Far more selective than a bare TCP connect: the edge has to actually
-     * complete a handshake for our own name, which a blackholed or hijacked
-     * address will not do.
+     * Far more selective than a bare TCP connect - which proves nothing here,
+     * since Cloudflare answers port 443 for anything at all.
      *
-     * @return handshake time in ms, or -1.
+     * @return handshake time in ms, or -1 when it failed.
      */
-    private fun handshake(ip: String, port: Int, sni: String): Long {
+    fun handshake(ip: String, port: Int, sni: String): Long {
         var socket: SSLSocket? = null
         val start = System.currentTimeMillis()
         return try {
@@ -153,87 +153,91 @@ object CleanIpScanner {
         }
     }
 
-    /**
-     * Hunts for working addresses for [template] and imports the survivors
-     * into [SCAN_SUB_ID] so the caller can prove them with the core.
-     *
-     * Runs until it has a batch, or until cancelled. There is no attempt limit.
-     *
-     * @return true when a batch is ready to be measured.
-     */
-    suspend fun hunt(template: ConfigTemplate): Boolean = withContext(Dispatchers.IO) {
-        if (!running.compareAndSet(false, true)) return@withContext false
-        try {
-            val probed = AtomicInteger(0)
-            val found = java.util.Collections.synchronizedList(mutableListOf<Pair<String, Int>>())
-            val gate = Semaphore(PARALLEL)
-            var round = 0
+    /* ───────────────────── continuous hunting ───────────────────── */
 
-            while (found.size < BATCH) {
-                ensureActive()
-                round++
+    /**
+     * Starts hunting and never stops on its own.
+     *
+     * Survivors pile up in [pending]; the caller drains them with [takeBatch]
+     * while this keeps probing, so measuring never pauses the search.
+     */
+    fun start(template: ConfigTemplate) {
+        if (isRunning()) return
+        pending.clear()
+        val probed = AtomicInteger(0)
+        val alive = AtomicInteger(0)
+        val recent = ArrayDeque<Probe>()
+        _progress.value = Progress(running = true)
+
+        huntJob = scope.launch {
+            val gate = Semaphore(PARALLEL)
+            while (isActive) {
                 coroutineScope {
-                    repeat(PARALLEL * 4) {
+                    repeat(PARALLEL * 2) {
                         launch {
-                            if (found.size >= BATCH) return@launch
                             gate.withPermit {
-                                if (found.size >= BATCH) return@withPermit
+                                if (!isActive) return@withPermit
                                 val ip = randomAddress()
-                                val port = template.port.takeIf { it in CF_PORTS }
-                                    ?: CF_PORTS.random()
+                                val port = template.port.takeIf { it in CF_PORTS } ?: 443
                                 val ms = handshake(ip, port, template.sni)
+                                val ok = ms >= 0
+                                if (ok) {
+                                    alive.incrementAndGet()
+                                    pending.add(ip to port)
+                                }
                                 probed.incrementAndGet()
-                                if (ms >= 0) found.add(ip to port)
-                                _phase.value = Phase.Scanning(probed.get(), found.size, round)
+                                synchronized(recent) {
+                                    recent.addFirst(Probe(ip, ok, if (ok) ms else -1L))
+                                    while (recent.size > RECENT_LIMIT) recent.removeLast()
+                                    _progress.value = Progress(
+                                        probed = probed.get(),
+                                        alive = alive.get(),
+                                        recent = recent.toList(),
+                                        running = true,
+                                    )
+                                }
                             }
                         }
                     }
                 }
-                // Nothing at all after a very large sweep means the whole network
-                // is unreachable, not that we were unlucky. Keep going anyway -
-                // the user asked for endless, and they can stop it themselves.
-                LogUtil.i(
-                    AppConfig.TAG,
-                    "CleanIpScanner: round $round, probed ${probed.get()}, found ${found.size}",
-                )
             }
-
-            _phase.value = Phase.Proving(found.size)
-            val imported = importCandidates(template, found.toList())
-            if (imported <= 0) {
-                _phase.value = Phase.GaveUp
-                return@withContext false
-            }
-            true
-        } catch (e: Exception) {
-            LogUtil.e(AppConfig.TAG, "CleanIpScanner: hunt failed", e)
-            _phase.value = Phase.Idle
-            false
-        } finally {
-            running.set(false)
+        }
+        huntJob?.invokeOnCompletion {
+            _progress.value = _progress.value.copy(running = false)
         }
     }
 
-    fun publishFound(address: String) {
-        _phase.value = Phase.Found(address)
+    fun stop() {
+        huntJob?.cancel()
+        huntJob = null
+        _progress.value = _progress.value.copy(running = false)
     }
 
-    fun publishGaveUp() {
-        _phase.value = Phase.GaveUp
-    }
+    /** True once a full batch of survivors is waiting. */
+    fun batchReady(): Boolean = pending.size >= BATCH
 
-    /** Rewrites the template once per address and imports the lot. */
-    private fun importCandidates(
-        template: ConfigTemplate,
-        addresses: List<Pair<String, Int>>,
-    ): Int {
-        ensureGroup()
-        MmkvManager.removeServerViaSubid(SCAN_SUB_ID)
-        val payload = addresses.joinToString("\n") { (ip, port) ->
-            template.withAddress(ip, port)
+    fun pendingCount(): Int = pending.size
+
+    /**
+     * Takes the survivors found so far, rewrites [template] onto each of them
+     * and imports the result.
+     *
+     * @return guids ready to be measured by the core.
+     */
+    fun takeBatch(template: ConfigTemplate): List<String> {
+        val batch: List<Pair<String, Int>>
+        synchronized(pending) {
+            if (pending.isEmpty()) return emptyList()
+            batch = pending.take(BATCH).toList()
+            repeat(batch.size) { if (pending.isNotEmpty()) pending.removeAt(0) }
         }
-        AngConfigManager.importBatchConfig(payload, SCAN_SUB_ID, false)
-        return MmkvManager.decodeServerList(SCAN_SUB_ID).size
+        return runCatching {
+            ensureGroup()
+            MmkvManager.removeServerViaSubid(SCAN_SUB_ID)
+            val payload = batch.joinToString("\n") { (ip, port) -> template.withAddress(ip, port) }
+            AngConfigManager.importBatchConfig(payload, SCAN_SUB_ID, false)
+            MmkvManager.decodeServerList(SCAN_SUB_ID)
+        }.getOrDefault(emptyList())
     }
 
     private fun ensureGroup() {
@@ -249,37 +253,27 @@ object CleanIpScanner {
         runCatching { MmkvManager.removeServerViaSubid(SCAN_SUB_ID) }
     }
 
-    /* ─────────────────────────── the template ─────────────────────────── */
+    /* ───────────────────────── the template ───────────────────────── */
 
-    /**
-     * A share link with its address factored out, so the same credentials can
-     * be pointed at any edge address we find.
-     */
     data class ConfigTemplate(
         val raw: String,
         val host: String,
         val port: Int,
         val sni: String,
     ) {
-        /** The same link, aimed at a different door. */
+        /** The same credentials, aimed at a different door. */
         fun withAddress(ip: String, newPort: Int): String {
             val replaced = raw.replaceFirst("@$host:$port", "@$ip:$newPort")
-            // Tag it so the user can see where it came from.
             return if (replaced.contains("#")) {
-                replaced.substringBeforeLast("#") + "#FILTERNET-SCAN-$ip"
+                replaced.substringBeforeLast("#") + "#SCAN-$ip"
             } else {
-                "$replaced#FILTERNET-SCAN-$ip"
+                "$replaced#SCAN-$ip"
             }
         }
     }
 
     private val HOST_PORT = Regex("""@(?:\[([^\[\]]+)]|([^/?#@:]+)):(\d{1,5})""")
 
-    /**
-     * Turns a share link into a template. Only links that carry an SNI or host
-     * header can be re-aimed, which in practice means the CDN based ones - and
-     * those are exactly the ones worth scanning for.
-     */
     fun templateOf(link: String): ConfigTemplate? = runCatching {
         val m = HOST_PORT.find(link) ?: return@runCatching null
         val host = m.groupValues[1].ifEmpty { m.groupValues[2] }
@@ -290,14 +284,69 @@ object CleanIpScanner {
         ConfigTemplate(link, host, port, sni)
     }.getOrNull()
 
-    /**
-     * Picks the best template out of the pool: the backend that the most
-     * configs point at, because that is the one most likely to still be alive.
-     */
+    /** The backend most of the pool points at is the one most likely alive. */
     fun bestTemplate(links: List<String>): ConfigTemplate? {
         val templates = links.mapNotNull { templateOf(it) }
         if (templates.isEmpty()) return null
-        val byBackend = templates.groupBy { it.sni.lowercase() }
-        return byBackend.maxByOrNull { it.value.size }?.value?.firstOrNull()
+        return templates.groupBy { it.sni.lowercase() }
+            .maxByOrNull { it.value.size }?.value?.firstOrNull()
     }
+
+    /* ───────────────────── what kind of block is this ───────────────────── */
+
+    enum class BlockType {
+        /** Our name works somewhere - scanning will find more doors. */
+        ADDRESS_BLOCKED,
+
+        /** Neutral names work, ours does not: the name itself is filtered. */
+        NAME_BLOCKED,
+
+        /** Nothing reaches the CDN at all on this network. */
+        NETWORK_BLOCKED,
+
+        /** Everything answers - the problem is elsewhere. */
+        NOT_BLOCKED,
+    }
+
+    data class BlockReport(val type: BlockType, val oursOk: Int, val neutralOk: Int, val tried: Int)
+
+    private const val NEUTRAL_SNI = "www.cloudflare.com"
+
+    /**
+     * FILTERNET: answers the only question that decides whether scanning is
+     * worth anything on this network.
+     *
+     * Each address is tried twice - once with our own name, once with a neutral
+     * one. If the neutral name sails through while ours is refused, the filter
+     * is matching on the name and no amount of address hunting will help; the
+     * Worker itself has to be replaced.
+     */
+    suspend fun classifyBlock(template: ConfigTemplate, samples: Int = 12): BlockReport =
+        withContext(Dispatchers.IO) {
+            val oursOk = AtomicInteger(0)
+            val neutralOk = AtomicInteger(0)
+            val gate = Semaphore(12)
+            coroutineScope {
+                repeat(samples) {
+                    launch {
+                        gate.withPermit {
+                            val ip = randomAddress()
+                            val port = template.port.takeIf { it in CF_PORTS } ?: 443
+                            if (handshake(ip, port, template.sni) >= 0) oursOk.incrementAndGet()
+                            if (handshake(ip, port, NEUTRAL_SNI) >= 0) neutralOk.incrementAndGet()
+                        }
+                    }
+                }
+            }
+            val o = oursOk.get()
+            val n = neutralOk.get()
+            val type = when {
+                o > 0 && n > 0 -> BlockType.NOT_BLOCKED
+                o > 0 -> BlockType.ADDRESS_BLOCKED
+                n > 0 -> BlockType.NAME_BLOCKED
+                else -> BlockType.NETWORK_BLOCKED
+            }
+            LogUtil.i(AppConfig.TAG, "CleanIpScanner: block type $type (ours=$o neutral=$n of $samples)")
+            BlockReport(type, o, n, samples)
+        }
 }
