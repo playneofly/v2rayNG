@@ -721,9 +721,6 @@
     <string name="fn_internal_checking">در حال بررسی…</string>
     <string name="fn_internal_wrong">رمز اشتباه است</string>
     <string name="fn_internal_deep">اسکن عمیق</string>
-    <string name="fn_internal_private">%1$s کانفیگ خصوصی بارگذاری شد</string>
-    <string name="fn_stage_normal">کانفیگ‌های عادی</string>
-    <string name="fn_stage_private">کانفیگ‌های خصوصی</string>
     <string name="fn_stage_scan">اسکن بی‌پایان آی‌پی</string>
     <string name="fn_stage_scan_live">اسکن… %1$s بررسی، %2$s زنده</string>
     <string name="fn_stage_scan_found">پیدا شد: %1$s</string>
@@ -735,4 +732,8 @@
     <string name="fn_block_network">کل CDN روی این شبکه در دسترس نیست. وای‌فای یا سیم‌کارت دیگری را امتحان کن.</string>
     <string name="fn_block_none">اینجا چیزی بسته نیست. مشکل جای دیگری است.</string>
     <string name="fn_block_counts">نام ما %1$s · خنثی %2$s · از %3$s تلاش</string>
+    <string name="fn_internal_carrier">فقط آی‌پی · %1$s</string>
+    <string name="fn_internal_disconnect">قطع اتصال</string>
+    <string name="fn_src_memory">آدرس‌های موفق قبلی · %1$s</string>
+    <string name="fn_src_ircf">آدرس‌های IRCF اپراتورت · %1$s</string>
 </resources>

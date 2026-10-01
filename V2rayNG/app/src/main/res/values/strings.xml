@@ -721,9 +721,6 @@
     <string name="fn_internal_checking">Checking…</string>
     <string name="fn_internal_wrong">Wrong password</string>
     <string name="fn_internal_deep">DEEP SCAN</string>
-    <string name="fn_internal_private">%1$s private configs loaded</string>
-    <string name="fn_stage_normal">Normal configs</string>
-    <string name="fn_stage_private">Private configs</string>
     <string name="fn_stage_scan">Endless IP scan</string>
     <string name="fn_stage_scan_live">Scanning… %1$s probed, %2$s alive</string>
     <string name="fn_stage_scan_found">Found: %1$s</string>
@@ -735,4 +732,8 @@
     <string name="fn_block_network">The whole CDN is unreachable on this network. Try Wi-Fi or another SIM.</string>
     <string name="fn_block_none">Nothing is blocked here. The problem is elsewhere.</string>
     <string name="fn_block_counts">ours %1$s · neutral %2$s · of %3$s tried</string>
+    <string name="fn_internal_carrier">Addresses only · %1$s</string>
+    <string name="fn_internal_disconnect">Disconnect</string>
+    <string name="fn_src_memory">Addresses that worked here · %1$s</string>
+    <string name="fn_src_ircf">ircf.space for your operator · %1$s</string>
 </resources>

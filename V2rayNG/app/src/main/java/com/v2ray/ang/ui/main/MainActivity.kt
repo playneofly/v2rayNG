@@ -1,5 +1,6 @@
 package com.v2ray.ang.ui.main
 
+import com.v2ray.ang.handler.IrcfSource
 import kotlinx.coroutines.isActive
 import com.v2ray.ang.handler.InternalVault
 import com.v2ray.ang.handler.CleanIpScanner
@@ -333,64 +334,73 @@ class MainActivity : HelperBaseComponentActivity() {
     private var autoConnectJob: kotlinx.coroutines.Job? = null
 
     /**
-     * FILTERNET: the internal tab's deep connect.
+     * FILTERNET: the internal tab. Addresses only.
      *
-     * Three routes are tried genuinely at the same time, because the user asked
-     * for exactly that and because they fail for different reasons:
+     * This path deliberately ignores the shared pool entirely - those live on
+     * the home screen. Here the only thing that varies is the *door*: the
+     * credentials stay yours, and we keep trying edge addresses until one of
+     * them still lets your Worker through.
      *
-     *   1. the normal pool        - cheap, usually answers within seconds
-     *   2. the private bundle     - whatever is behind the password
-     *   3. the endless IP hunt    - started at t=0 and never pauses
+     * Three sources feed the same hunt, all started together:
      *
-     * The hunt keeps probing while the other two are being measured, so nothing
-     * ever waits its turn. Whichever route produces a server that really passes
-     * traffic wins, everything else is stopped, and the tunnel comes up once.
+     *   · addresses that really worked on this operator before  - instant
+     *   · the per-operator list from ircf.space, over DoH        - seconds
+     *   · an endless random sweep of the CDN ranges              - forever
+     *
+     * Seeds are probed first so the common case finishes quickly, and the
+     * sweep carries on behind them so nothing ever waits its turn.
      */
     private fun handleDeepConnect() {
         if (autoConnectJob?.isActive == true) return
         autoConnectJob = lifecycleScope.launch {
             try {
-                val normal = withContext(Dispatchers.IO) {
-                    ServerPoolManager.poolLinks(applicationContext)
+                withContext(Dispatchers.IO) {
+                    CleanIpScanner.refreshRanges(applicationContext)
                 }
-                val private = withContext(Dispatchers.IO) { InternalVault.configs() }
-                val template = CleanIpScanner.bestTemplate(private.ifEmpty { normal })
 
-                // Stage 3 starts immediately and runs for the whole session.
-                if (template != null) CleanIpScanner.start(template)
-
-                // ---- stage 1 + 2: measure what we already have -------------
-                val readyGuids = withContext(Dispatchers.IO) {
-                    ServerPoolManager.importForMeasurement(normal, private)
-                }
-                if (readyGuids.isNotEmpty()) {
-                    val winner = mainViewModel.measureRound(readyGuids, timeoutMs = 45_000L)
-                    if (winner != null) {
-                        finishDeepConnect(winner)
-                        return@launch
+                // Credentials come from the private bundle when there is one,
+                // otherwise from the shared pool - but only as a template.
+                val links = withContext(Dispatchers.IO) {
+                    InternalVault.configs().ifEmpty {
+                        ServerPoolManager.poolLinks(applicationContext)
                     }
                 }
-
+                val template = CleanIpScanner.bestTemplate(links)
                 if (template == null) {
-                    LogUtil.w(AppConfig.TAG, "DeepConnect: nothing scannable in the pool")
+                    LogUtil.w(AppConfig.TAG, "DeepConnect: no scannable config available")
                     return@launch
                 }
 
-                // ---- stage 3: drain the hunt, batch after batch, forever ----
+                val carrier = IrcfSource.carrierName(applicationContext)
+                val memory = withContext(Dispatchers.IO) { CleanIpScanner.winners(carrier) }
+                val ircf = withContext(Dispatchers.IO) {
+                    IrcfSource.fetch(applicationContext).addresses
+                }
+
+                CleanIpScanner.start(
+                    template = template,
+                    seeds = memory + ircf,
+                    seedIrcf = ircf.size,
+                    seedMemory = memory.size,
+                )
+
                 while (isActive) {
                     if (!CleanIpScanner.batchReady()) {
-                        delay(1000L)
+                        delay(800L)
                         continue
                     }
-                    val batch = withContext(Dispatchers.IO) {
-                        CleanIpScanner.takeBatch(template)
-                    }
+                    val batch = withContext(Dispatchers.IO) { CleanIpScanner.takeBatch(template) }
                     if (batch.isEmpty()) {
-                        delay(1000L)
+                        delay(800L)
                         continue
                     }
                     val winner = mainViewModel.measureRound(batch, timeoutMs = 45_000L)
                     if (winner != null) {
+                        withContext(Dispatchers.IO) {
+                            CleanIpScanner.addressOfScanConfig(winner)?.let {
+                                CleanIpScanner.rememberWinner(carrier, it)
+                            }
+                        }
                         finishDeepConnect(winner)
                         return@launch
                     }

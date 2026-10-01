@@ -50,8 +50,13 @@ object CleanIpScanner {
     /** Entries kept for the live list. Unbounded scanning, bounded memory. */
     private const val RECENT_LIMIT = 50
 
-    /** Cloudflare's published IPv4 ranges - about 1.5 million addresses. */
-    private val CF_RANGES = listOf(
+    /**
+     * Cloudflare's published IPv4 ranges, used for the random sweep.
+     *
+     * Bundled rather than fetched so the sweep still works during a shutdown,
+     * and refreshed from the official list whenever the network allows.
+     */
+    private var CF_RANGES = listOf(
         "173.245.48.0/20", "103.21.244.0/22", "103.22.200.0/22", "103.31.4.0/22",
         "141.101.64.0/18", "108.162.192.0/18", "190.93.240.0/20", "188.114.96.0/20",
         "197.234.240.0/22", "198.41.128.0/17", "162.158.0.0/15", "104.16.0.0/13",
@@ -68,6 +73,10 @@ object CleanIpScanner {
         val alive: Int = 0,
         val recent: List<Probe> = emptyList(),
         val running: Boolean = false,
+        /** Addresses handed in by ircf.space for this operator. */
+        val seedIrcf: Int = 0,
+        /** Addresses that really worked here before. */
+        val seedMemory: Int = 0,
     )
 
     private val _progress = MutableStateFlow(Progress())
@@ -89,8 +98,14 @@ object CleanIpScanner {
 
     private data class Block(val base: Long, val size: Long)
 
-    private val blocks: List<Block> by lazy {
-        CF_RANGES.mapNotNull { cidr ->
+    @Volatile
+    private var blocksCache: List<Block>? = null
+
+    private val blocks: List<Block>
+        get() = blocksCache ?: buildBlocks().also { blocksCache = it }
+
+    private fun buildBlocks(): List<Block> {
+        return CF_RANGES.mapNotNull { cidr ->
             runCatching {
                 val (ip, bits) = cidr.split("/")
                 val p = ip.split(".").map { it.toLong() }
@@ -100,6 +115,35 @@ object CleanIpScanner {
     }
 
     fun addressSpace(): Long = blocks.sumOf { it.size }
+
+    /**
+     * Refreshes the ranges from Cloudflare's own list.
+     *
+     * Cheap, and it means a future change to their allocation does not quietly
+     * shrink the search space.
+     */
+    fun refreshRanges(context: android.content.Context) = runCatching {
+        val fromAsset = runCatching {
+            context.assets.open("cloudflare-ipv4.txt").use { it.readBytes().decodeToString() }
+        }.getOrNull()
+        val fromNet = runCatching {
+            com.v2ray.ang.util.HttpUtil.getUrlContent(
+                com.v2ray.ang.dto.UrlContentRequest(
+                    url = "https://www.cloudflare.com/ips-v4", timeout = 8000,
+                )
+            )
+        }.getOrNull()
+        val text = (fromNet ?: fromAsset).orEmpty()
+        val parsed = text.lineSequence()
+            .map { it.trim() }
+            .filter { it.contains("/") && it.count { c -> c == '.' } == 3 }
+            .toList()
+        if (parsed.size >= 10) {
+            CF_RANGES = parsed
+            blocksCache = null
+            LogUtil.i(AppConfig.TAG, "CleanIpScanner: ${parsed.size} ranges, ${addressSpace()} addresses")
+        }
+    }.getOrNull().let { }
 
     /** A uniformly random address from the published ranges. */
     fun randomAddress(): String {
@@ -161,15 +205,67 @@ object CleanIpScanner {
      * Survivors pile up in [pending]; the caller drains them with [takeBatch]
      * while this keeps probing, so measuring never pauses the search.
      */
-    fun start(template: ConfigTemplate) {
+    /**
+     * Starts hunting and never stops on its own.
+     *
+     * [seeds] are addresses someone already believes in - the ones ircf.space
+     * publishes for this operator, plus any that genuinely worked here before.
+     * They are probed first and all at once, so the good case finishes in a
+     * second or two; the random sweep then carries on behind them forever.
+     *
+     * Survivors pile up in [pending]; the caller drains them with [takeBatch]
+     * while this keeps probing, so measuring never pauses the search.
+     */
+    fun start(
+        template: ConfigTemplate,
+        seeds: List<String> = emptyList(),
+        seedIrcf: Int = 0,
+        seedMemory: Int = 0,
+    ) {
         if (isRunning()) return
         pending.clear()
         val probed = AtomicInteger(0)
         val alive = AtomicInteger(0)
         val recent = ArrayDeque<Probe>()
-        _progress.value = Progress(running = true)
+        _progress.value = Progress(running = true, seedIrcf = seedIrcf, seedMemory = seedMemory)
+
+        fun record(ip: String, ok: Boolean, ms: Long) {
+            probed.incrementAndGet()
+            if (ok) alive.incrementAndGet()
+            synchronized(recent) {
+                recent.addFirst(Probe(ip, ok, if (ok) ms else -1L))
+                while (recent.size > RECENT_LIMIT) recent.removeLast()
+                _progress.value = Progress(
+                    probed = probed.get(),
+                    alive = alive.get(),
+                    recent = recent.toList(),
+                    running = true,
+                    seedIrcf = seedIrcf,
+                    seedMemory = seedMemory,
+                )
+            }
+        }
 
         huntJob = scope.launch {
+            val port = template.port.takeIf { it in CF_PORTS } ?: 443
+
+            // ---- seeds first, all together -------------------------------
+            if (seeds.isNotEmpty()) {
+                val gate = Semaphore(PARALLEL)
+                coroutineScope {
+                    seeds.distinct().forEach { ip ->
+                        launch {
+                            gate.withPermit {
+                                val ms = handshake(ip, port, template.sni)
+                                if (ms >= 0) pending.add(ip to port)
+                                record(ip, ms >= 0, ms)
+                            }
+                        }
+                    }
+                }
+            }
+
+            // ---- then the endless random sweep ---------------------------
             val gate = Semaphore(PARALLEL)
             while (isActive) {
                 coroutineScope {
@@ -178,24 +274,9 @@ object CleanIpScanner {
                             gate.withPermit {
                                 if (!isActive) return@withPermit
                                 val ip = randomAddress()
-                                val port = template.port.takeIf { it in CF_PORTS } ?: 443
                                 val ms = handshake(ip, port, template.sni)
-                                val ok = ms >= 0
-                                if (ok) {
-                                    alive.incrementAndGet()
-                                    pending.add(ip to port)
-                                }
-                                probed.incrementAndGet()
-                                synchronized(recent) {
-                                    recent.addFirst(Probe(ip, ok, if (ok) ms else -1L))
-                                    while (recent.size > RECENT_LIMIT) recent.removeLast()
-                                    _progress.value = Progress(
-                                        probed = probed.get(),
-                                        alive = alive.get(),
-                                        recent = recent.toList(),
-                                        running = true,
-                                    )
-                                }
+                                if (ms >= 0) pending.add(ip to port)
+                                record(ip, ms >= 0, ms)
                             }
                         }
                     }
@@ -248,6 +329,38 @@ object CleanIpScanner {
             SubscriptionItem(remarks = SCAN_REMARKS, url = "", enabled = false, autoUpdate = false),
         )
     }
+
+    /* ─────────────── memory of addresses that really worked ─────────────── */
+
+    private const val KEY_WINNERS = "fn_scan_winners_"
+    private const val WINNER_LIMIT = 12
+
+    /**
+     * Remembers an address that passed a real test on this network.
+     *
+     * Stored per operator, because an address that works on Irancell says
+     * nothing about what works on a home connection.
+     */
+    fun rememberWinner(carrier: String, ip: String) = runCatching {
+        if (carrier.isBlank() || !DohResolver.isIpv4(ip)) return@runCatching
+        val key = KEY_WINNERS + carrier.lowercase().replace(' ', '_')
+        val now = MmkvManager.decodeSettingsString(key).orEmpty()
+            .split(",").map { it.trim() }.filter { DohResolver.isIpv4(it) }
+        val next = (listOf(ip) + now).distinct().take(WINNER_LIMIT)
+        MmkvManager.encodeSettings(key, next.joinToString(","))
+    }.getOrNull()
+
+    fun winners(carrier: String): List<String> = runCatching {
+        val key = KEY_WINNERS + carrier.lowercase().replace(' ', '_')
+        MmkvManager.decodeSettingsString(key).orEmpty()
+            .split(",").map { it.trim() }.filter { DohResolver.isIpv4(it) }
+    }.getOrDefault(emptyList())
+
+    /** Pulls the address back out of a scan config, for [rememberWinner]. */
+    fun addressOfScanConfig(guid: String): String? = runCatching {
+        val p = MmkvManager.decodeServerConfig(guid) ?: return@runCatching null
+        p.server?.takeIf { DohResolver.isIpv4(it) }
+    }.getOrNull()
 
     fun clear() {
         runCatching { MmkvManager.removeServerViaSubid(SCAN_SUB_ID) }

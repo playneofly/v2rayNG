@@ -68,6 +68,7 @@ internal fun MainInternalScreen(
     isRunning: Boolean,
     onDeepConnect: () -> Unit,
     onCancel: () -> Unit,
+    onDisconnect: () -> Unit,
 ) {
     val context = LocalContext.current
     var unlocked by remember { mutableStateOf(InternalVault.isUnlocked() || InternalVault.wasUnlockedBefore()) }
@@ -82,6 +83,7 @@ internal fun MainInternalScreen(
     val scope = rememberCoroutineScope()
     var blockReport by remember { mutableStateOf<CleanIpScanner.BlockReport?>(null) }
     var classifying by remember { mutableStateOf(false) }
+    val carrier = remember { com.v2ray.ang.handler.IrcfSource.carrierName(context) }
 
     Column(
         modifier = Modifier
@@ -99,7 +101,7 @@ internal fun MainInternalScreen(
                     color = MaterialTheme.colorScheme.onSurface,
                 )
                 Text(
-                    text = stringResource(R.string.fn_internal_sub),
+                    text = stringResource(R.string.fn_internal_carrier, carrier),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -127,8 +129,42 @@ internal fun MainInternalScreen(
         DeepConnectOrb(
             isRunning = isRunning,
             busy = busy,
-            onClick = { if (busy) onCancel() else onDeepConnect() },
+            onClick = {
+                when {
+                    isRunning -> onDisconnect()
+                    busy -> onCancel()
+                    else -> onDeepConnect()
+                }
+            },
         )
+
+        if (isRunning || busy) {
+            Spacer(Modifier.height(10.dp))
+            Surface(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { if (isRunning) onDisconnect() else onCancel() },
+                shape = RoundedCornerShape(FilternetTokens.RadiusMedium),
+                color = FilternetTokens.Rose.copy(alpha = 0.10f),
+                contentColor = FilternetTokens.Rose,
+                border = androidx.compose.foundation.BorderStroke(
+                    1.dp, FilternetTokens.Rose.copy(alpha = 0.35f),
+                ),
+            ) {
+                Text(
+                    text = stringResource(
+                        if (isRunning) R.string.fn_internal_disconnect
+                        else R.string.fn_core_cancel
+                    ),
+                    style = MaterialTheme.typography.titleSmall,
+                    color = FilternetTokens.Rose,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 13.dp),
+                )
+            }
+        }
 
         Spacer(Modifier.height(14.dp))
 
@@ -473,13 +509,13 @@ private fun StageList(scan: CleanIpScanner.Progress, isRunning: Boolean) {
     Column(Modifier.fillMaxWidth()) {
         StageRow(
             index = 1,
-            label = stringResource(R.string.fn_stage_normal),
+            label = stringResource(R.string.fn_src_memory, faDigits(scan.seedMemory)),
             done = isRunning,
             active = scan.running,
         )
         StageRow(
             index = 2,
-            label = stringResource(R.string.fn_stage_private),
+            label = stringResource(R.string.fn_src_ircf, faDigits(scan.seedIrcf)),
             done = isRunning,
             active = scan.running,
         )

@@ -13,8 +13,8 @@ android {
         applicationId = "com.filternet.app"
         minSdk = 24
         targetSdk = 37
-        versionCode = 772
-        versionName = "3.9.0"
+        versionCode = 773
+        versionName = "4.0.0"
 
         val abiFilterList = (properties["ABI_FILTERS"] as? String)?.split(';')
         splits {

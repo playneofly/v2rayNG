@@ -220,6 +220,7 @@ fun MainScreen(
                             isRunning = uiState.isRunning,
                             onDeepConnect = { onAction(MainAction.DeepConnect) },
                             onCancel = { onAction(MainAction.CancelAutoConnect) },
+                            onDisconnect = { onAction(MainAction.ToggleService) },
                         )
 
                         MainRootTab.Stats -> MainTrafficScreen()
