@@ -88,6 +88,16 @@ object CleanIpScanner {
     /** One probed address, for the live list. */
     data class Probe(val address: String, val alive: Boolean, val ms: Long)
 
+    /**
+     * Where the hunt has got to.
+     *
+     * PREPARING exists because everything before the first probe - refreshing
+     * the ranges, inflating the pool, asking ircf.space over DoH - is seconds
+     * of silence on a slow network. The screen used to show a resting orb for
+     * all of it, so tapping connect looked like it had done nothing at all.
+     */
+    enum class Stage { IDLE, PREPARING, SEEDING, SWEEPING, MEASURING }
+
     data class Progress(
         val probed: Int = 0,
         val alive: Int = 0,
@@ -97,10 +107,34 @@ object CleanIpScanner {
         val seedIrcf: Int = 0,
         /** Addresses that really worked here before. */
         val seedMemory: Int = 0,
+        val stage: Stage = Stage.IDLE,
     )
 
     private val _progress = MutableStateFlow(Progress())
     val progress: StateFlow<Progress> = _progress.asStateFlow()
+
+    /**
+     * The clean address the live tunnel is actually running through, so the
+     * private tab can prove it is doing what it claims rather than asking to
+     * be believed.
+     */
+    private val _connectedVia = MutableStateFlow<String?>(null)
+    val connectedVia: StateFlow<String?> = _connectedVia.asStateFlow()
+
+    fun setConnectedVia(ip: String?) { _connectedVia.value = ip }
+
+    /**
+     * Call on the main thread the instant the user taps, before any IO. Owns
+     * nothing and blocks nothing - it just stops the UI from lying.
+     */
+    fun beginPreparing() {
+        _progress.value = Progress(running = true, stage = Stage.PREPARING)
+    }
+
+    /** The core has the candidates and is timing them for real. */
+    fun markMeasuring() {
+        _progress.value = _progress.value.copy(stage = Stage.MEASURING)
+    }
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private var huntJob: Job? = null
@@ -271,7 +305,10 @@ object CleanIpScanner {
         val probed = AtomicInteger(0)
         val alive = AtomicInteger(0)
         val recent = ArrayDeque<Probe>()
-        _progress.value = Progress(running = true, seedIrcf = seedIrcf, seedMemory = seedMemory)
+        _progress.value = Progress(
+            running = true, seedIrcf = seedIrcf, seedMemory = seedMemory,
+            stage = if (seeds.isEmpty()) Stage.SWEEPING else Stage.SEEDING,
+        )
 
         fun record(ip: String, ok: Boolean, ms: Long) {
             probed.incrementAndGet()
@@ -296,6 +333,9 @@ object CleanIpScanner {
                     running = true,
                     seedIrcf = seedIrcf,
                     seedMemory = seedMemory,
+                    // Rebuilt wholesale each time, so carry the stage across
+                    // or the UI drops back to PREPARING on every probe.
+                    stage = if (seedPhaseDone) Stage.SWEEPING else Stage.SEEDING,
                 )
             }
         }
@@ -320,6 +360,7 @@ object CleanIpScanner {
             }
 
             seedPhaseDone = true
+            _progress.value = _progress.value.copy(stage = Stage.SWEEPING)
 
             // ---- then the endless random sweep ---------------------------
             //
@@ -351,7 +392,7 @@ object CleanIpScanner {
         huntJob?.cancel()
         huntJob = null
         seedPhaseDone = false
-        _progress.value = _progress.value.copy(running = false)
+        _progress.value = _progress.value.copy(running = false, stage = Stage.IDLE)
     }
 
     /**

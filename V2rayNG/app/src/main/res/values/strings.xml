@@ -719,6 +719,11 @@
     <string name="fn_deep_no_template">No config here can be scanned. The internal tab needs a Cloudflare-backed config.</string>
     <string name="fn_main_holds_title">Already connected</string>
     <string name="fn_main_holds_sub">The tunnel is being held by the home tab. Disconnect there first, then the deep hunt can start.</string>
+    <string name="fn_stage_preparing">preparing…</string>
+    <string name="fn_stage_seeding">trying known addresses…</string>
+    <string name="fn_stage_sweeping">sweeping the CDN…</string>
+    <string name="fn_stage_measuring">timing the survivors…</string>
+    <string name="fn_connected_via">connected through this clean address</string>
     <string name="fn_internal_locked_title">Locked area</string>
     <string name="fn_internal_locked_sub">Enter the password. It is checked on this phone only, so it works even with no internet at all.</string>
     <string name="fn_internal_password">Password</string>

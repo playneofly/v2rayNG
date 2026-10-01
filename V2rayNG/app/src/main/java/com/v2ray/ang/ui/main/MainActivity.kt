@@ -283,6 +283,7 @@ class MainActivity : HelperBaseComponentActivity() {
      */
     private fun stopTunnel() {
         LauncherManager.stopService(this)
+        CleanIpScanner.setConnectedVia(null)
         if (FilternetMode.isInternal()) {
             FilternetMode.consumeSelection()?.let { mainViewModel.selectServerQuietly(it) }
         }
@@ -323,7 +324,15 @@ class MainActivity : HelperBaseComponentActivity() {
      * One start, no flapping.
      */
     private fun handleAutoConnect() {
-        if (autoConnectJob?.isActive == true) return
+        // The deep hunt and this share one job slot. Returning silently was
+        // the whole of the "I press connect and nothing happens, then it
+        // locks itself seconds later" bug: a hunt the user had given up on
+        // kept running invisibly, swallowed this tap, and then grabbed the
+        // screen when it finally succeeded. Tapping here means the user wants
+        // an ordinary connection, so the hunt loses.
+        if (autoConnectJob?.isActive == true) {
+            cancelAutoConnect()
+        }
         FilternetMode.claim(FilternetMode.Owner.MAIN)
         autoConnectJob = lifecycleScope.launch {
             val ready = ServerPoolManager.prepareCandidates(applicationContext)
@@ -376,6 +385,11 @@ class MainActivity : HelperBaseComponentActivity() {
         // saw a tunnel it did not start and happily offered to disconnect it.
         FilternetMode.claim(FilternetMode.Owner.INTERNAL)
         FilternetMode.rememberSelection(mainViewModel.uiState.value.selectedGuid)
+        // Before this the orb sat at rest through refreshRanges, a 600 KB
+        // gunzip and a DoH round trip - several seconds on a bad network -
+        // so the tap looked ignored. Published synchronously, on this thread.
+        CleanIpScanner.beginPreparing()
+        CleanIpScanner.setConnectedVia(null)
         autoConnectJob = lifecycleScope.launch {
             try {
                 withContext(Dispatchers.IO) {
@@ -426,11 +440,13 @@ class MainActivity : HelperBaseComponentActivity() {
                     // 45 s was a round trip the user had to sit through before
                     // the next batch could even be tried. A dozen handshakes
                     // that are going to answer answer well inside 20.
+                    CleanIpScanner.markMeasuring()
                     val winner = mainViewModel.measureRound(batch, timeoutMs = 20_000L)
                     if (winner != null) {
                         withContext(Dispatchers.IO) {
                             CleanIpScanner.addressOfScanConfig(winner)?.let {
                                 CleanIpScanner.rememberWinner(carrier, it)
+                                CleanIpScanner.setConnectedVia(it)
                             }
                         }
                         finishDeepConnect(winner)

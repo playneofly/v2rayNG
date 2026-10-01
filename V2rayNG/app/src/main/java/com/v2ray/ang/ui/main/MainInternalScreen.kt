@@ -1,5 +1,16 @@
 package com.v2ray.ang.ui.main
 
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.Canvas
+import androidx.compose.ui.draw.scale
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -90,6 +101,7 @@ internal fun MainInternalScreen(
     // showing its own disconnect button for it was how the two tabs ended up
     // fighting over the same service.
     val tunnelOwner by FilternetMode.owner.collectAsStateWithLifecycle()
+    val connectedVia by CleanIpScanner.connectedVia.collectAsStateWithLifecycle()
     val minePending = isRunning && tunnelOwner == FilternetMode.Owner.INTERNAL
     val scope = rememberCoroutineScope()
     var blockReport by remember { mutableStateOf<CleanIpScanner.BlockReport?>(null) }
@@ -152,6 +164,7 @@ internal fun MainInternalScreen(
         DeepConnectOrb(
             isRunning = minePending,
             busy = busy,
+            stage = scan.stage,
             onClick = {
                 when {
                     minePending -> onDisconnect()
@@ -187,6 +200,14 @@ internal fun MainInternalScreen(
                         .padding(vertical = 13.dp),
                 )
             }
+        }
+
+        // Proof, not reassurance: the actual address carrying the traffic.
+        // Copied to a local first - a `by` delegate cannot be smart cast.
+        val via = connectedVia
+        if (minePending && via != null) {
+            Spacer(Modifier.height(12.dp))
+            ConnectedViaCard(address = via)
         }
 
         Spacer(Modifier.height(14.dp))
@@ -676,15 +697,58 @@ private fun LockScreen(onUnlocked: () -> Unit) {
 /* ═══════════════════════════ the orb ═══════════════════════════ */
 
 @Composable
-private fun DeepConnectOrb(isRunning: Boolean, busy: Boolean, onClick: () -> Unit) {
+private fun DeepConnectOrb(
+    isRunning: Boolean,
+    busy: Boolean,
+    stage: CleanIpScanner.Stage,
+    onClick: () -> Unit,
+) {
     val tint = when {
         isRunning -> FilternetTokens.Mint
         busy -> FilternetTokens.Amber
         else -> FilternetTokens.Accent
     }
+
+    // FILTERNET: the orb had no animation of any kind, so a hunt that was
+    // genuinely working was indistinguishable from a dead button. Two cues:
+    // the whole orb breathes while busy, and a ring sweeps around it so there
+    // is visible motion even when the counters have not changed for a while.
+    val pulse = rememberInfiniteTransition(label = "orb")
+    val scale by pulse.animateFloat(
+        initialValue = 1f,
+        targetValue = if (busy) 1.045f else 1f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(900, easing = FastOutSlowInEasing),
+            repeatMode = RepeatMode.Reverse,
+        ),
+        label = "breathe",
+    )
+    val sweep by pulse.animateFloat(
+        initialValue = 0f,
+        targetValue = 360f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(1400, easing = LinearEasing),
+            repeatMode = RepeatMode.Restart,
+        ),
+        label = "sweep",
+    )
+
+    Box(contentAlignment = Alignment.Center) {
+        if (busy) {
+            Canvas(Modifier.size(186.dp)) {
+                drawArc(
+                    color = tint,
+                    startAngle = sweep,
+                    sweepAngle = 72f,
+                    useCenter = false,
+                    style = Stroke(width = 5f, cap = StrokeCap.Round),
+                )
+            }
+        }
     Surface(
         modifier = Modifier
             .size(170.dp)
+            .scale(if (busy) scale else 1f)
             .clickable(onClick = onClick),
         shape = CircleShape,
         color = Color.Transparent,
@@ -715,7 +779,61 @@ private fun DeepConnectOrb(isRunning: Boolean, busy: Boolean, onClick: () -> Uni
                     style = MaterialTheme.typography.labelMedium,
                     color = Color.White,
                 )
+                // Which of the four phases, in words. Without this the user
+                // cannot tell a stalled hunt from a slow one.
+                val stageLabel = when (stage) {
+                    CleanIpScanner.Stage.PREPARING -> R.string.fn_stage_preparing
+                    CleanIpScanner.Stage.SEEDING -> R.string.fn_stage_seeding
+                    CleanIpScanner.Stage.SWEEPING -> R.string.fn_stage_sweeping
+                    CleanIpScanner.Stage.MEASURING -> R.string.fn_stage_measuring
+                    CleanIpScanner.Stage.IDLE -> null
+                }
+                if (busy && stageLabel != null) {
+                    Spacer(Modifier.height(3.dp))
+                    Text(
+                        text = stringResource(stageLabel),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = Color.White.copy(alpha = 0.85f),
+                    )
+                }
             }
+        }
+    }
+    }
+}
+
+/* ══════════════════════ which address are we on ══════════════════════ */
+
+/**
+ * FILTERNET: shows the clean IP the tunnel is actually running through.
+ *
+ * The private tab's whole claim is that it reaches the backend by a CDN
+ * address the filter has not got to yet. Asserting that in a help text is
+ * worth nothing; printing the address is checkable.
+ */
+@Composable
+private fun ConnectedViaCard(address: String) {
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(FilternetTokens.RadiusMedium),
+        color = FilternetTokens.Mint.copy(alpha = 0.10f),
+        contentColor = FilternetTokens.Mint,
+        border = androidx.compose.foundation.BorderStroke(
+            1.dp, FilternetTokens.Mint.copy(alpha = 0.35f),
+        ),
+    ) {
+        Column(Modifier.padding(13.dp)) {
+            Text(
+                text = stringResource(R.string.fn_connected_via),
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Spacer(Modifier.height(3.dp))
+            Text(
+                text = address,
+                style = MaterialTheme.typography.titleMedium,
+                color = FilternetTokens.Mint,
+            )
         }
     }
 }
