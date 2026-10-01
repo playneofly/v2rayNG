@@ -26,6 +26,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -46,10 +47,13 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.v2ray.ang.R
+import com.v2ray.ang.handler.BundledData
 import com.v2ray.ang.handler.CleanIpScanner
 import com.v2ray.ang.handler.InternalVault
+import com.v2ray.ang.handler.ServerPoolManager
 import com.v2ray.ang.ui.compose.FilternetAccentBrush
 import com.v2ray.ang.ui.compose.FilternetTokens
+import com.v2ray.ang.ui.compose.faCount
 import com.v2ray.ang.ui.compose.faDigits
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -169,6 +173,11 @@ internal fun MainInternalScreen(
         Spacer(Modifier.height(14.dp))
 
         StageList(scan = scan, isRunning = isRunning)
+
+        Spacer(Modifier.height(12.dp))
+
+        // ── what this build can do with no network ───────────────────────
+        OfflineDataCard()
 
         Spacer(Modifier.height(12.dp))
 
@@ -308,6 +317,135 @@ private fun BlockCheckCard(
                 )
             }
         }
+    }
+}
+
+/* ═════════════════════ what is inside this build ═════════════════════ */
+
+/**
+ * FILTERNET: the data this APK carries, and the only button that touches the
+ * network on purpose.
+ *
+ * Every figure comes out of the manifest [BundledData] reads from the APK, not
+ * from a constant someone has to remember to edit. Add configs to the pool file
+ * and push: the build bakes them in and this card reports the new number by
+ * itself. That property is the whole reason the manifest exists.
+ *
+ * Tapping refreshes the pool from the mirrors. It is allowed to fail - the card
+ * says so and carries on with the bundled copy, because the bundled copy was
+ * never a fallback in the first place. It is the default.
+ */
+@Composable
+private fun OfflineDataCard() {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+
+    var manifest by remember { mutableStateOf(BundledData.Manifest()) }
+    var available by remember { mutableStateOf(0) }
+    var refreshing by remember { mutableStateOf(false) }
+    var refreshFailed by remember { mutableStateOf(false) }
+
+    // Reading the manifest touches the APK and counting the pool inflates
+    // 600 KB of gzip; neither belongs in composition. The card draws with
+    // zeroes for one frame and fills itself in.
+    LaunchedEffect(Unit) {
+        val read = withContext(Dispatchers.IO) { BundledData.manifest(context) }
+        manifest = read
+        available = read.poolConfigs
+        // What is really loaded right now - a refresh may have replaced the
+        // bundled list with a longer one.
+        val counted = withContext(Dispatchers.IO) { ServerPoolManager.availableCount(context) }
+        available = maxOf(counted, read.poolConfigs)
+    }
+
+    Surface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(enabled = !refreshing) {
+                refreshing = true
+                refreshFailed = false
+                scope.launch {
+                    val fresh = ServerPoolManager.refreshNow(context)
+                    if (fresh == null) {
+                        refreshFailed = true
+                    } else {
+                        available = fresh
+                    }
+                    refreshing = false
+                }
+            },
+        shape = RoundedCornerShape(FilternetTokens.RadiusMedium),
+        color = MaterialTheme.colorScheme.surfaceContainer,
+        contentColor = MaterialTheme.colorScheme.onSurface,
+        border = androidx.compose.foundation.BorderStroke(
+            1.dp, MaterialTheme.colorScheme.outlineVariant,
+        ),
+    ) {
+        Column(Modifier.padding(13.dp)) {
+            Text(
+                text = stringResource(R.string.fn_offline_title),
+                style = MaterialTheme.typography.titleSmall,
+                color = MaterialTheme.colorScheme.onSurface,
+            )
+            Spacer(Modifier.height(6.dp))
+
+            OfflineDataRow(R.string.fn_offline_pool, faCount(available))
+            if (manifest.internalConfigs > 0) {
+                OfflineDataRow(R.string.fn_offline_internal, faCount(manifest.internalConfigs))
+            }
+            OfflineDataRow(R.string.fn_offline_ircf, faCount(manifest.ircfAddresses))
+            OfflineDataRow(R.string.fn_offline_cloudflare, faCount(manifest.cloudflareAddresses))
+
+            Spacer(Modifier.height(7.dp))
+            Text(
+                text = when {
+                    refreshing -> stringResource(R.string.fn_offline_refreshing)
+                    refreshFailed -> stringResource(R.string.fn_offline_refresh_failed)
+                    else -> stringResource(R.string.fn_offline_hint)
+                },
+                style = MaterialTheme.typography.bodySmall,
+                color = when {
+                    refreshFailed -> FilternetTokens.Amber
+                    refreshing -> FilternetTokens.Mint
+                    else -> MaterialTheme.colorScheme.onSurfaceVariant
+                },
+            )
+
+            if (manifest.builtAt.isNotBlank()) {
+                Spacer(Modifier.height(3.dp))
+                Text(
+                    // "2026-10-01T16:45:00Z" reads better as just the date here.
+                    text = stringResource(
+                        R.string.fn_offline_built,
+                        faDigits(manifest.builtAt.substringBefore('T')),
+                    ),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.outline,
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun OfflineDataRow(labelRes: Int, value: String) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 2.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            text = stringResource(labelRes),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.weight(1f),
+        )
+        Text(
+            text = value,
+            style = MaterialTheme.typography.labelLarge,
+            color = MaterialTheme.colorScheme.onSurface,
+        )
     }
 }
 

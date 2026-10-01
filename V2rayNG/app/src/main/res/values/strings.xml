@@ -733,6 +733,17 @@
     <string name="fn_block_none">Nothing is blocked here. The problem is elsewhere.</string>
     <string name="fn_block_counts">ours %1$s · neutral %2$s · of %3$s tried</string>
     <string name="fn_internal_carrier">Addresses only · %1$s</string>
+
+    <!-- FILTERNET: what the APK carries with no network at all. -->
+    <string name="fn_offline_title">Inside this build</string>
+    <string name="fn_offline_pool">Configs</string>
+    <string name="fn_offline_internal">Private configs</string>
+    <string name="fn_offline_ircf">IRCF addresses</string>
+    <string name="fn_offline_cloudflare">Cloudflare addresses</string>
+    <string name="fn_offline_hint">All of it works offline. Tap to pull a newer list.</string>
+    <string name="fn_offline_refreshing">Updating…</string>
+    <string name="fn_offline_refresh_failed">Could not reach the mirrors. Still using the bundled list.</string>
+    <string name="fn_offline_built">Built %1$s</string>
     <string name="fn_internal_disconnect">Disconnect</string>
     <string name="fn_src_memory">Addresses that worked here · %1$s</string>
     <string name="fn_src_ircf">ircf.space for your operator · %1$s</string>

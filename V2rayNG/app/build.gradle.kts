@@ -226,3 +226,92 @@ dependencies {
     testImplementation(libs.mockito.kotlin)
     coreLibraryDesugaring(libs.desugar.jdk.libs)
 }
+
+/* ══════════════════════════ FILTERNET: data bundling ══════════════════════════
+ *
+ * Runs tools/filternet-bundle.py before anything is compiled, so the APK that
+ * comes out of this build carries the pool, the IRCF addresses, the Cloudflare
+ * ranges and the sealed Worker configs as they stand *right now* rather than
+ * whatever the app can download later from a network it may not have.
+ *
+ * Because the task runs on every build, bumping any of those counts is exactly
+ * as much work as editing the file and pressing build - there is no second
+ * place to remember.
+ *
+ * Deliberately forgiving: with no Python on PATH it leaves the committed assets
+ * alone and warns, so cloning the repo into Android Studio and pressing Run
+ * still produces a working APK. It only fails the build when the script is
+ * there, runs, and reports an error - a real problem worth stopping for.
+ *
+ *   ./gradlew assembleDebug                      bundle what is on disk
+ *   ./gradlew assembleDebug -PfnRefresh=true     re-resolve IRCF and Cloudflare first
+ *
+ * The private configs are read from $FN_INTERNAL_CONFIGS and sealed with
+ * $FN_INTERNAL_PASSWORD; both are GitHub secrets in CI and simply absent on a
+ * normal developer machine, where the committed internal.bin is reused.
+ */
+
+val filternetRepoRoot: File = rootProject.projectDir.parentFile
+val filternetScript: File = File(filternetRepoRoot, "tools/filternet-bundle.py")
+val filternetManifest: File = file("src/main/assets/fn-manifest.json")
+val filternetRefresh: Boolean =
+    (providers.gradleProperty("fnRefresh").orNull ?: System.getenv("FN_REFRESH") ?: "false")
+        .toBoolean()
+
+val filternetBundle = tasks.register("filternetBundle") {
+    group = "filternet"
+    description = "Bakes the server pool, IRCF addresses, Cloudflare ranges and " +
+        "the sealed Worker configs into src/main/assets."
+
+    // The whole point is to pick up data that changed outside Gradle's view.
+    outputs.upToDateWhen { false }
+
+    val script = filternetScript
+    val workingDir = filternetRepoRoot
+    val manifest = filternetManifest
+    val refresh = filternetRefresh
+
+    doLast {
+        if (!script.isFile) {
+            logger.warn("FILTERNET: ${script.path} not found - keeping the committed assets")
+            return@doLast
+        }
+
+        val python = listOf("python3", "python").firstOrNull { exe ->
+            runCatching {
+                ProcessBuilder(exe, "--version")
+                    .redirectErrorStream(true)
+                    .start()
+                    .also { it.inputStream.readBytes() }
+                    .waitFor() == 0
+            }.getOrDefault(false)
+        }
+        if (python == null) {
+            logger.warn("FILTERNET: no Python on PATH - keeping the committed assets")
+            return@doLast
+        }
+
+        val cmd = buildList {
+            add(python)
+            add(script.absolutePath)
+            if (refresh) add("--refresh")
+        }
+        logger.lifecycle("FILTERNET: ${cmd.joinToString(" ")}")
+
+        val process = ProcessBuilder(cmd)
+            .directory(workingDir)
+            .redirectErrorStream(true)
+            .start()
+        process.inputStream.bufferedReader().forEachLine { logger.lifecycle(it) }
+
+        val exit = process.waitFor()
+        if (exit != 0) {
+            throw GradleException("FILTERNET: data bundling failed (exit $exit)")
+        }
+        if (!manifest.isFile) {
+            throw GradleException("FILTERNET: ${manifest.name} was not produced")
+        }
+    }
+}
+
+tasks.named("preBuild") { dependsOn(filternetBundle) }

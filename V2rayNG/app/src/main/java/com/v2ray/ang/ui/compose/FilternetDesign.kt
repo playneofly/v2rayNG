@@ -15,6 +15,7 @@ import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import java.util.Locale
 import kotlin.math.max
 
 object FilternetTokens {
@@ -92,6 +93,21 @@ fun faDigits(value: Any?): String {
     for (c in s) sb.append(if (c in '0'..'9') PERSIAN_DIGITS[c - '0'] else c)
     return sb.toString()
 }
+
+/** U+066C, the thousands separator Persian actually uses. */
+private const val PERSIAN_THOUSANDS = '\u066C'
+
+/**
+ * Turns 1524736 into ۱٬۵۲۴٬۷۳۶ - grouped, Persian digits, Persian separator.
+ *
+ * Some of the numbers on screen run to seven figures: the Cloudflare address
+ * space the scanner sweeps, the size of the bundled config pool. Ungrouped
+ * they are unreadable, and a plain comma looks wrong beside Persian digits.
+ */
+fun faCount(value: Long): String =
+    faDigits(String.format(Locale.US, "%,d", value)).replace(',', PERSIAN_THOUSANDS)
+
+fun faCount(value: Int): String = faCount(value.toLong())
 
 /**
  * FILTERNET: ping thresholds tuned for Iran. A 60 ms hop to Europe simply does

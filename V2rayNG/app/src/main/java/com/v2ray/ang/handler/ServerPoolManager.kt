@@ -25,11 +25,11 @@ import java.util.concurrent.atomic.AtomicInteger
 /**
  * FILTERNET: the automatic server pool.
  *
- * The pool file on GitHub may hold *thousands* of share links. Importing all of
- * them would bloat storage and make the app crawl, so nothing is written to the
- * profile database until a server has actually proven itself:
+ * The pool may hold *thousands* of share links. Importing all of them would
+ * bloat storage and make the app crawl, so nothing is written to the profile
+ * database until a server has actually proven itself:
  *
- *   1. download the list (mirrors + on-disk cache)
+ *   1. read the list (bundled asset, or a newer copy the user pulled)
  *   2. pull host:port straight out of each link, no parsing into profiles
  *   3. measure a wave of [WAVE_SIZE] links at a time, [PARALLEL] at once
  *   4. the first wave that yields enough servers under [MAX_PING_MS] wins
@@ -37,6 +37,13 @@ import java.util.concurrent.atomic.AtomicInteger
  *
  * There is deliberately **no cap** on how many links may be examined - if a
  * wave produces nothing the next wave is tried, until the list runs out.
+ *
+ * ── where the list comes from ─────────────────────────────────────────────
+ * It used to be downloaded from GitHub on first use. That inverted the whole
+ * purpose of the feature: a phone with no working proxy cannot reach GitHub,
+ * so the one user who needed a free server was the one user guaranteed not to
+ * get one. The list now ships inside the APK - see [BundledData] - and the
+ * network is only ever consulted when the user explicitly asks for a refresh.
  */
 object ServerPoolManager {
 
@@ -104,39 +111,102 @@ object ServerPoolManager {
         runCatching { MmkvManager.decodeAllServerList().isNotEmpty() }.getOrDefault(false)
 
     /**
-     * Refreshes the cached list in the background when it is missing or stale.
-     * Safe to call on every app start - it returns straight away when fresh.
+     * How many links this build can offer without touching the network.
+     *
+     * Read straight from the manifest, so it tracks whatever the last release
+     * happened to bake in rather than a number someone has to remember to
+     * update by hand.
+     */
+    fun bundledCount(context: Context): Int = BundledData.manifest(context).poolConfigs
+
+    /** Number of links actually available right now, bundled or downloaded. */
+    fun availableCount(context: Context): Int =
+        runCatching { parse(poolSource(context).orEmpty()).size }.getOrDefault(0)
+
+    /**
+     * Pulls a newer list from the mirrors. Only ever called because the user
+     * asked - nothing on the connect path waits for this.
+     *
+     * A download that arrives empty, truncated or unparseable is discarded:
+     * a captive portal answering 200 with a login page must not be allowed to
+     * overwrite a perfectly good bundled list.
+     *
+     * @return how many links the new list holds, or null when nothing usable
+     *         could be fetched.
+     */
+    suspend fun refreshNow(context: Context): Int? = withContext(Dispatchers.IO) {
+        val body = download() ?: return@withContext null
+        val count = runCatching { parse(body).size }.getOrDefault(0)
+        if (count < MIN_USABLE_LINKS) {
+            LogUtil.w(AppConfig.TAG, "ServerPool: refresh returned only $count links, ignored")
+            return@withContext null
+        }
+        runCatching {
+            File(context.filesDir, CACHE_FILE).writeText(body)
+            MmkvManager.encodeSettings(CACHE_STAMP, System.currentTimeMillis().toString())
+        }
+        LogUtil.i(AppConfig.TAG, "ServerPool: refreshed to $count links")
+        count
+    }
+
+    /**
+     * Opportunistic background refresh, kept for the app-start path.
+     *
+     * Unlike before, nothing waits on it and nothing fails without it - the
+     * bundled list is already serviceable, this only tops it up.
      */
     suspend fun refreshIfStale(context: Context) = withContext(Dispatchers.IO) {
+        dropCacheIfNewBuild(context)
         val stamp = MmkvManager.decodeSettingsString(CACHE_STAMP)?.toLongOrNull() ?: 0L
         val cache = File(context.filesDir, CACHE_FILE)
         if (cache.exists() && System.currentTimeMillis() - stamp < CACHE_TTL_MS) return@withContext
-        val body = download() ?: return@withContext
-        runCatching {
-            cache.writeText(body)
-            MmkvManager.encodeSettings(CACHE_STAMP, System.currentTimeMillis().toString())
-        }
+        runCatching { refreshNow(context) }
+        Unit
     }
 
     /* ─────────────────────────── internals ─────────────────────────── */
 
-    private fun cachedOrDownload(context: Context): String? {
+    /** A "list" shorter than this is a captive portal or an error page. */
+    private const val MIN_USABLE_LINKS = 5
+
+    private const val KEY_SEEN_BUILD = "filternet_pool_seen_build"
+
+    /**
+     * Throws away a download from a previous release.
+     *
+     * Each APK carries the pool as it stood when it was built, so after an
+     * update the bundled copy is the newer of the two. Without this the app
+     * would keep serving a list the user downloaded weeks ago and quietly
+     * ignore the one they just installed.
+     */
+    private fun dropCacheIfNewBuild(context: Context) {
+        val built = BundledData.manifest(context).builtAt
+        if (built.isBlank()) return
+        val seen = runCatching { MmkvManager.decodeSettingsString(KEY_SEEN_BUILD) }.getOrNull()
+        if (seen == built) return
+        runCatching {
+            File(context.filesDir, CACHE_FILE).delete()
+            MmkvManager.encodeSettings(CACHE_STAMP, "0")
+            MmkvManager.encodeSettings(KEY_SEEN_BUILD, built)
+        }
+        LogUtil.i(AppConfig.TAG, "ServerPool: build $built installed, bundled pool takes over")
+    }
+
+    /**
+     * The best list available without going near the network.
+     *
+     * A copy the user pulled wins while it is fresh; after that, and on every
+     * phone that has never managed a download, the asset compiled into the APK
+     * is used. This function cannot block and does not fail.
+     */
+    private fun poolSource(context: Context): String? {
+        dropCacheIfNewBuild(context)
         val cache = File(context.filesDir, CACHE_FILE)
-        val stamp = MmkvManager.decodeSettingsString(CACHE_STAMP)?.toLongOrNull() ?: 0L
-        if (cache.exists() && System.currentTimeMillis() - stamp < CACHE_TTL_MS) {
-            val text = runCatching { cache.readText() }.getOrNull()
-            if (!text.isNullOrBlank()) return text
-        }
-        val fresh = download()
-        if (!fresh.isNullOrBlank()) {
-            runCatching {
-                cache.writeText(fresh)
-                MmkvManager.encodeSettings(CACHE_STAMP, System.currentTimeMillis().toString())
-            }
-            return fresh
-        }
-        // network is down but an old copy is better than nothing
-        return runCatching { if (cache.exists()) cache.readText() else null }.getOrNull()
+        val cached = runCatching {
+            if (cache.exists() && cache.length() > 0) cache.readText() else null
+        }.getOrNull()
+        if (!cached.isNullOrBlank()) return cached
+        return BundledData.poolText(context)
     }
 
     private fun download(): String? {
@@ -289,9 +359,11 @@ object ServerPoolManager {
         if (!running.compareAndSet(false, true)) return@withContext false
         try {
             _phase.value = Phase.Downloading
-            val raw = cachedOrDownload(context)
+            val raw = poolSource(context)
             if (raw.isNullOrBlank()) {
-                _phase.value = Phase.Failed(Reason.NO_INTERNET)
+                // Only reachable if the bundled asset is missing from the build.
+                LogUtil.e(AppConfig.TAG, "ServerPool: no bundled pool in this APK")
+                _phase.value = Phase.Failed(Reason.EMPTY_LIST)
                 return@withContext false
             }
 
@@ -389,15 +461,15 @@ object ServerPoolManager {
      * stayed amber for the rest of the session and refused to be tapped.
      */
     /**
-     * FILTERNET: every link in the pool, downloading first when the cache is
-     * cold.
+     * FILTERNET: every link in the pool.
      *
-     * The scanner used to read the cache only, which meant it had nothing to
-     * work with on a phone where the normal connect had never once succeeded -
-     * exactly the phone that needs the scanner most.
+     * The scanner used to read the on-disk cache only, which meant it had
+     * nothing to work with on a phone where the normal connect had never once
+     * succeeded - exactly the phone that needs the scanner most. It now falls
+     * through to the bundled asset, so this is never empty.
      */
     fun poolLinks(context: Context): List<String> = runCatching {
-        val raw = cachedOrDownload(context) ?: return@runCatching emptyList()
+        val raw = poolSource(context) ?: return@runCatching emptyList()
         parse(raw).map { it.raw }
     }.getOrDefault(emptyList())
 

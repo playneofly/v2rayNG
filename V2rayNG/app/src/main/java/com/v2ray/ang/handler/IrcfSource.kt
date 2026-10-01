@@ -52,7 +52,15 @@ object IrcfSource {
     private const val CACHE_STAMP = "fn_ircf_cache_at"
     private const val CACHE_TTL_MS = 3L * 60 * 60 * 1000
 
-    data class Result(val carrier: String, val codes: List<String>, val addresses: List<String>)
+    data class Result(
+        val carrier: String,
+        val codes: List<String>,
+        val addresses: List<String>,
+        /** How many of [addresses] came from a live lookup just now. */
+        val live: Int = 0,
+        /** How many came from the snapshot compiled into the APK. */
+        val bundled: Int = 0,
+    )
 
     /** Human readable name of the network the phone is on right now. */
     fun carrierName(context: Context): String = runCatching {
@@ -92,10 +100,20 @@ object IrcfSource {
     fun hostsFor(code: String): List<String> = listOf("${code}c.$DOMAIN", "$code.$DOMAIN")
 
     /**
-     * Fetches clean addresses for this network.
+     * Clean addresses for whatever network the phone is on.
      *
-     * Results are cached so a later attempt during a shutdown - when no name
-     * can be resolved at all - still has something to work with.
+     * Three sources are pooled, in descending order of trust:
+     *
+     *   1. a live DoH lookup - today's answer, best if it arrives
+     *   2. the last answer this phone saw, cached in settings
+     *   3. the snapshot resolved on the build runner and shipped in the APK
+     *
+     * They are unioned rather than tried in turn. An address that worked an
+     * hour ago is still worth a handshake, and every candidate gets verified
+     * by [CleanIpScanner] anyway, so a stale entry costs one probe and nothing
+     * else. What matters is that the list is never empty - and before the
+     * bundled snapshot existed it was reliably empty on exactly the phones
+     * that could not resolve anything, which is to say during a shutdown.
      */
     suspend fun fetch(context: Context): Result = withContext(Dispatchers.IO) {
         val codes = codesFor(context)
@@ -116,18 +134,37 @@ object IrcfSource {
                 MmkvManager.encodeSettings(CACHE_KEY, fresh.joinToString(","))
                 MmkvManager.encodeSettings(CACHE_STAMP, System.currentTimeMillis().toString())
             }
-            LogUtil.i(AppConfig.TAG, "IrcfSource: ${fresh.size} addresses for $carrier ($codes)")
-            return@withContext Result(carrier, codes, fresh)
         }
 
-        // Nothing resolved - fall back to whatever we saw last time.
         val cached = runCatching {
             MmkvManager.decodeSettingsString(CACHE_KEY).orEmpty()
                 .split(",").map { it.trim() }.filter { DohResolver.isIpv4(it) }
         }.getOrDefault(emptyList())
-        LogUtil.w(AppConfig.TAG, "IrcfSource: live lookup failed, ${cached.size} cached")
-        Result(carrier, codes, cached)
+
+        val bundled = runCatching { BundledData.ircfSeedFor(context, codes) }.getOrDefault(emptyList())
+
+        val all = (fresh + cached + bundled).distinct()
+        if (fresh.isEmpty()) {
+            LogUtil.w(
+                AppConfig.TAG,
+                "IrcfSource: live lookup failed for $carrier, " +
+                    "falling back to ${cached.size} cached + ${bundled.size} bundled",
+            )
+        } else {
+            LogUtil.i(
+                AppConfig.TAG,
+                "IrcfSource: ${all.size} addresses for $carrier ($codes), ${fresh.size} live",
+            )
+        }
+        Result(carrier, codes, all, live = fresh.size, bundled = bundled.size)
     }
+
+    /**
+     * Addresses available with no network at all, for the UI to show before
+     * anything has been tried.
+     */
+    fun offlineCount(context: Context): Int =
+        runCatching { BundledData.ircfSeedFor(context, codesFor(context)).size }.getOrDefault(0)
 
     fun cacheAgeMs(): Long = runCatching {
         val at = MmkvManager.decodeSettingsString(CACHE_STAMP)?.toLongOrNull() ?: return@runCatching -1L

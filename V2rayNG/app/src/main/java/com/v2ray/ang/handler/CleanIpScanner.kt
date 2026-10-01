@@ -53,8 +53,10 @@ object CleanIpScanner {
     /**
      * Cloudflare's published IPv4 ranges, used for the random sweep.
      *
-     * Bundled rather than fetched so the sweep still works during a shutdown,
-     * and refreshed from the official list whenever the network allows.
+     * Hard-coded here as a last resort only; [refreshRanges] replaces them
+     * with the list bundled in the APK, which the build refreshes from
+     * Cloudflare on every release. Fifteen CIDRs describe all 1,524,736
+     * addresses, so there is nothing to gain by shipping them expanded.
      */
     private var CF_RANGES = listOf(
         "173.245.48.0/20", "103.21.244.0/22", "103.22.200.0/22", "103.31.4.0/22",
@@ -117,31 +119,42 @@ object CleanIpScanner {
     fun addressSpace(): Long = blocks.sumOf { it.size }
 
     /**
-     * Refreshes the ranges from Cloudflare's own list.
+     * Loads the ranges to sweep: the APK's own copy first, then whatever
+     * Cloudflare is publishing today.
      *
-     * Cheap, and it means a future change to their allocation does not quietly
-     * shrink the search space.
+     * The order is deliberate. The previous version preferred the network and
+     * only touched the asset if the request failed outright - which meant a
+     * filtered or hijacked response could silently replace the search space,
+     * and a slow one held up the scan. The bundled list is correct, instant
+     * and cannot be tampered with, so it is the baseline; a live answer is
+     * merged in on top purely to catch a new allocation between releases.
+     *
+     * Union rather than replace: an address Cloudflare stopped advertising
+     * this morning is still answering on port 443 this afternoon.
      */
     fun refreshRanges(context: android.content.Context) = runCatching {
-        val fromAsset = runCatching {
-            context.assets.open("cloudflare-ipv4.txt").use { it.readBytes().decodeToString() }
-        }.getOrNull()
+        val bundled = BundledData.cloudflareCidrs(context)
         val fromNet = runCatching {
             com.v2ray.ang.util.HttpUtil.getUrlContent(
                 com.v2ray.ang.dto.UrlContentRequest(
                     url = "https://www.cloudflare.com/ips-v4", timeout = 8000,
                 )
             )
-        }.getOrNull()
-        val text = (fromNet ?: fromAsset).orEmpty()
-        val parsed = text.lineSequence()
+        }.getOrNull().orEmpty()
+            .lineSequence()
             .map { it.trim() }
             .filter { it.contains("/") && it.count { c -> c == '.' } == 3 }
             .toList()
-        if (parsed.size >= 10) {
-            CF_RANGES = parsed
+
+        val merged = (bundled + fromNet).distinct()
+        if (merged.size >= 10) {
+            CF_RANGES = merged
             blocksCache = null
-            LogUtil.i(AppConfig.TAG, "CleanIpScanner: ${parsed.size} ranges, ${addressSpace()} addresses")
+            LogUtil.i(
+                AppConfig.TAG,
+                "CleanIpScanner: ${merged.size} ranges (${bundled.size} bundled, " +
+                    "${fromNet.size} live), ${addressSpace()} addresses",
+            )
         }
     }.getOrNull().let { }
 

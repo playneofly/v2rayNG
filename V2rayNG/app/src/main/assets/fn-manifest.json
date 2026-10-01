@@ -1,0 +1,30 @@
+{
+ "builtAt": "2026-10-01T16:58:22Z",
+ "cloudflare": {
+  "addresses": 1524736,
+  "bytes": 231,
+  "cidrs": 15,
+  "file": "cloudflare-ipv4.txt",
+  "sha256": "ec7cbcfadc91344da6b906b2c564ddd0c9f35de1054f50502762743fee07c5bf"
+ },
+ "internal": {
+  "bytes": 0,
+  "configs": 0,
+  "encrypted": true,
+  "file": null
+ },
+ "ircf": {
+  "addresses": 37,
+  "bytes": 706,
+  "file": "ircf-seed.json",
+  "operators": 13,
+  "sha256": "ed72c30cfd4eb0c8082d419028440b48c5a167f1a3ae17e0f73dd7e93399a061"
+ },
+ "pool": {
+  "bytes": 26843,
+  "configs": 1893,
+  "file": "filternet-pool.txt.gz",
+  "sha256": "25a583cc74227d5030cd676f1b4ff59105d4d06ecb0d97a156c161fe13cbc8d9"
+ },
+ "schema": 1
+}

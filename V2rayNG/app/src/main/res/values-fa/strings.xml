@@ -733,6 +733,17 @@
     <string name="fn_block_none">اینجا چیزی بسته نیست. مشکل جای دیگری است.</string>
     <string name="fn_block_counts">نام ما %1$s · خنثی %2$s · از %3$s تلاش</string>
     <string name="fn_internal_carrier">فقط آی‌پی · %1$s</string>
+
+    <!-- FILTERNET: آنچه داخل خود برنامه ذخیره شده و بدون اینترنت کار می‌کند. -->
+    <string name="fn_offline_title">داخل همین نسخه</string>
+    <string name="fn_offline_pool">کانفیگ</string>
+    <string name="fn_offline_internal">کانفیگ خصوصی</string>
+    <string name="fn_offline_ircf">آدرس IRCF</string>
+    <string name="fn_offline_cloudflare">آدرس کلادفلر</string>
+    <string name="fn_offline_hint">همه بدون اینترنت کار می‌کند. برای گرفتن لیست تازه‌تر بزنید.</string>
+    <string name="fn_offline_refreshing">در حال بروزرسانی…</string>
+    <string name="fn_offline_refresh_failed">به میرورها نرسیدیم. همان لیست داخل برنامه در حال استفاده است.</string>
+    <string name="fn_offline_built">ساخت %1$s</string>
     <string name="fn_internal_disconnect">قطع اتصال</string>
     <string name="fn_src_memory">آدرس‌های موفق قبلی · %1$s</string>
     <string name="fn_src_ircf">آدرس‌های IRCF اپراتورت · %1$s</string>
