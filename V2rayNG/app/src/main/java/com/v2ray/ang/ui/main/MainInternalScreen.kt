@@ -96,6 +96,18 @@ internal fun MainInternalScreen(
     var classifying by remember { mutableStateOf(false) }
     val carrier = remember { com.v2ray.ang.handler.IrcfSource.carrierName(context) }
 
+    // The mirror of the message the home tab shows. Without it this screen
+    // would read "not connected" while the home tab's tunnel was up, and the
+    // orb would cheerfully start a deep hunt on top of a live connection.
+    //
+    // The test is "not mine" rather than "the home tab's" on purpose: a tunnel
+    // started from the quick-settings tile, the widget or boot autostart has no
+    // owner recorded at all, and that is still not this screen's to replace.
+    if (isRunning && tunnelOwner != FilternetMode.Owner.INTERNAL) {
+        MainModeHoldsTunnel()
+        return
+    }
+
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -216,6 +228,61 @@ internal fun MainInternalScreen(
             ProbeList(scan.recent)
             Spacer(Modifier.height(16.dp))
         }
+    }
+}
+
+/* ═══════════════════ the home tab is holding the tunnel ═══════════════════ */
+
+/**
+ * FILTERNET: the mirror image of the home tab's notice.
+ *
+ * Android has one VPN slot. Whichever tab filled it owns it, and the other
+ * one says so rather than pretending it could start a second.
+ */
+@Composable
+private fun MainModeHoldsTunnel() {
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(horizontal = 28.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center,
+    ) {
+        Surface(
+            modifier = Modifier.size(108.dp),
+            shape = CircleShape,
+            color = FilternetTokens.Mint.copy(alpha = 0.12f),
+            border = androidx.compose.foundation.BorderStroke(
+                1.dp, FilternetTokens.Mint.copy(alpha = 0.45f),
+            ),
+        ) {
+            Box(contentAlignment = Alignment.Center) {
+                Icon(
+                    painter = painterResource(R.drawable.ic_shield_24dp),
+                    contentDescription = null,
+                    modifier = Modifier.size(38.dp),
+                    tint = FilternetTokens.Mint,
+                )
+            }
+        }
+
+        Spacer(Modifier.height(22.dp))
+
+        Text(
+            text = stringResource(R.string.fn_main_holds_title),
+            style = MaterialTheme.typography.titleMedium,
+            color = MaterialTheme.colorScheme.onSurface,
+            textAlign = TextAlign.Center,
+        )
+
+        Spacer(Modifier.height(8.dp))
+
+        Text(
+            text = stringResource(R.string.fn_main_holds_sub),
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            textAlign = TextAlign.Center,
+        )
     }
 }
 

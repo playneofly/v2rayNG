@@ -717,6 +717,8 @@
     <string name="fn_internal_holds_title">حالت داخلی روشن است</string>
     <string name="fn_internal_holds_sub">اتصال در اختیار تب داخلی است. اول آن را خاموش کنید تا این صفحه برگردد.</string>
     <string name="fn_deep_no_template">هیچ کانفیگی برای اسکن مناسب نیست. تب داخلی به کانفیگ پشت کلادفلر نیاز دارد.</string>
+    <string name="fn_main_holds_title">همین حالا متصل است</string>
+    <string name="fn_main_holds_sub">اتصال در اختیار صفحه‌ی اصلی است. اول آنجا قطع کنید تا جست‌وجوی عمیق بتواند شروع شود.</string>
     <string name="fn_internal_locked_title">بخش قفل‌شده</string>
     <string name="fn_internal_locked_sub">رمز را وارد کن. بررسی رمز فقط روی همین گوشی انجام می‌شود، پس حتی بدون هیچ اینترنتی کار می‌کند.</string>
     <string name="fn_internal_password">رمز</string>
