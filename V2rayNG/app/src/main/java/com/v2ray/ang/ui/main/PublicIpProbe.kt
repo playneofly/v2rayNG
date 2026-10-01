@@ -23,6 +23,21 @@ internal object PublicIpProbe {
 
     private val IPV4 = Regex("""\b(?:\d{1,3}\.){3}\d{1,3}\b""")
 
+    /**
+     * FILTERNET: IP plus the country it belongs to, for the live tunnel map.
+     * Falls back to the IP alone when the country lookup is unavailable.
+     */
+    fun lookupDetailed(): Pair<String, String?>? {
+        val ip = lookup() ?: return null
+        val country = runCatching {
+            val body = HttpUtil.getUrlContent(
+                UrlContentRequest(url = "https://ipapi.co/$ip/country_name/", timeout = 5000)
+            )?.trim()
+            body?.takeIf { it.isNotBlank() && it.length < 40 && !it.startsWith("{") }
+        }.getOrNull()
+        return ip to country
+    }
+
     fun lookup(): String? {
         for (url in ENDPOINTS) {
             val body = runCatching {

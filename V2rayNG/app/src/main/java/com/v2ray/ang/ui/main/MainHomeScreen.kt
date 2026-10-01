@@ -1,5 +1,7 @@
 package com.v2ray.ang.ui.main
 
+import com.v2ray.ang.handler.SessionStatsManager
+import com.v2ray.ang.handler.NetworkDiagnostics
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.v2ray.ang.handler.ServerPoolManager
 import androidx.compose.animation.core.FastOutSlowInEasing
@@ -99,6 +101,13 @@ internal fun MainHomeScreen(
     var pendingConnection by remember { mutableStateOf(false) }
     var uptimeSeconds by remember { mutableLongStateOf(0L) }
     var publicIp by remember { mutableStateOf<String?>(null) }
+    var exitCountry by remember { mutableStateOf<String?>(null) }
+    var reach by remember { mutableStateOf(NetworkDiagnostics.Reach.UNKNOWN) }
+    var serviceResults by remember { mutableStateOf<Map<String, Boolean>?>(null) }
+    var showDiagnostics by remember { mutableStateOf(false) }
+    var showRecap by remember { mutableStateOf(false) }
+    var receipt by remember { mutableStateOf<SessionStatsManager.Session?>(null) }
+    var anomaly by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
     // FILTERNET: the button is red and refuses to spin when there is no network.
     val hasInternet by rememberHasInternet()
@@ -177,7 +186,56 @@ internal fun MainHomeScreen(
     LaunchedEffect(isRunning) {
         if (!isRunning) return@LaunchedEffect
         delay(2500L)
-        publicIp = withContext(Dispatchers.IO) { PublicIpProbe.lookup() }
+        val info = withContext(Dispatchers.IO) { PublicIpProbe.lookupDetailed() }
+        publicIp = info?.first
+        exitCountry = info?.second
+        SessionStatsManager.setCountry(info?.second)
+    }
+
+    // FILTERNET: open and close the session that feeds the receipt, the monthly
+    // recap and the "slower than usual" baseline.
+    LaunchedEffect(isRunning) {
+        if (isRunning) {
+            SessionStatsManager.onConnected()
+        } else {
+            val finished = withContext(Dispatchers.IO) { SessionStatsManager.onDisconnected() }
+            if (finished != null) receipt = finished
+        }
+    }
+
+    // FILTERNET: tell the user when the country - not the app - is the problem.
+    LaunchedEffect(isRunning, hasInternet) {
+        if (isRunning) { reach = NetworkDiagnostics.Reach.FULL; return@LaunchedEffect }
+        delay(1200L)
+        reach = NetworkDiagnostics.checkReachability()
+    }
+
+    // FILTERNET: live service checklist, refreshed while connected.
+    LaunchedEffect(isRunning) {
+        if (!isRunning) { serviceResults = null; return@LaunchedEffect }
+        delay(3500L)
+        while (isRunning) {
+            serviceResults = NetworkDiagnostics.quickServiceCheck()
+            delay(90_000L)
+        }
+    }
+
+    // FILTERNET: this user's own speed history is the only fair benchmark.
+    LaunchedEffect(speed, isRunning) {
+        anomaly = isRunning &&
+            uptimeSeconds > 60 &&
+            SessionStatsManager.isAnomalouslySlow(speed.down)
+    }
+
+    // FILTERNET: build up a per-carrier picture of real throughput, so the user
+    // can see which of their networks is actually faster.
+    val carrierName = rememberCarrierName()
+    LaunchedEffect(isRunning, uptimeSeconds) {
+        if (isRunning && uptimeSeconds > 0 && uptimeSeconds % 60L == 0L && speed.down > 0) {
+            withContext(Dispatchers.IO) {
+                SessionStatsManager.recordCarrierSample(carrierName, speed.down)
+            }
+        }
     }
 
     Column(
@@ -187,6 +245,12 @@ internal fun MainHomeScreen(
             .padding(horizontal = 16.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
+        // FILTERNET: a country-wide outage is not our bug - say so loudly.
+        if (!isRunning && reach == NetworkDiagnostics.Reach.NATIONAL_ONLY) {
+            NationalInternetBanner()
+            Spacer(Modifier.height(10.dp))
+        }
+
         StatusPill(state = coreState)
 
         Spacer(Modifier.height(4.dp))
@@ -238,7 +302,198 @@ internal fun MainHomeScreen(
             onStatusClick = onTestCurrent,
         )
 
+        Spacer(Modifier.height(10.dp))
+
+        TunnelGlobe(
+            isRunning = isRunning,
+            country = exitCountry,
+            downBytesPerSec = speed.down,
+        )
+
+        if (anomaly) {
+            Spacer(Modifier.height(10.dp))
+            AnomalyCard(onSwitch = onAutoConnect)
+        }
+
+        val carrierStats = remember(uptimeSeconds / 60) {
+            SessionStatsManager.allCarrierStats(listOf(carrierName, "Wi-Fi", "همراه اول", "ایرانسل", "رایتل"))
+        }
+        if (carrierStats.size >= 2) {
+            Spacer(Modifier.height(10.dp))
+            CarrierCompareCard(stats = carrierStats, current = carrierName)
+        }
+
+        if (isRunning) {
+            Spacer(Modifier.height(10.dp))
+            ServiceChecklist(
+                results = serviceResults,
+                onRefresh = { serviceResults = null },
+            )
+        }
+
+        Spacer(Modifier.height(10.dp))
+
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            ActionTile(
+                modifier = Modifier.weight(1f),
+                iconRes = R.drawable.ic_warning_24dp,
+                label = stringResource(R.string.fn_diag_title),
+                onClick = { showDiagnostics = true },
+            )
+            ActionTile(
+                modifier = Modifier.weight(1f),
+                iconRes = R.drawable.ic_insights_24dp,
+                label = stringResource(R.string.fn_recap_title),
+                onClick = { showRecap = true },
+            )
+        }
+
         Spacer(Modifier.height(16.dp))
+    }
+
+    if (showDiagnostics) {
+        DiagnosticsSheet(
+            isRunning = isRunning,
+            onDismiss = { showDiagnostics = false },
+            onFindBetterServer = onAutoConnect,
+        )
+    }
+
+    if (showRecap) {
+        val recap = remember { SessionStatsManager.recap() }
+        MonthlyRecapSheet(recap = recap, onDismiss = { showRecap = false })
+    }
+
+    receipt?.let { s ->
+        SessionReceiptSheet(session = s, onDismiss = { receipt = null })
+    }
+}
+
+/* ════════════════════════ national internet banner ════════════════════════ */
+
+@Composable
+private fun NationalInternetBanner() {
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(FilternetTokens.RadiusMedium),
+        color = FilternetTokens.Amber.copy(alpha = 0.12f),
+        contentColor = FilternetTokens.Amber,
+        border = androidx.compose.foundation.BorderStroke(
+            1.dp, FilternetTokens.Amber.copy(alpha = 0.4f),
+        ),
+    ) {
+        Row(modifier = Modifier.padding(13.dp), verticalAlignment = Alignment.Top) {
+            Icon(
+                painter = painterResource(R.drawable.ic_warning_24dp),
+                contentDescription = null,
+                modifier = Modifier.size(17.dp),
+                tint = FilternetTokens.Amber,
+            )
+            Spacer(Modifier.width(10.dp))
+            Column {
+                Text(
+                    text = stringResource(R.string.fn_national_banner),
+                    style = MaterialTheme.typography.titleSmall,
+                    color = FilternetTokens.Amber,
+                )
+                Spacer(Modifier.height(3.dp))
+                Text(
+                    text = stringResource(R.string.fn_national_banner_sub),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
+    }
+}
+
+/* ════════════════════════════ anomaly card ════════════════════════════ */
+
+@Composable
+private fun AnomalyCard(onSwitch: () -> Unit) {
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(FilternetTokens.RadiusMedium),
+        color = FilternetTokens.Amber.copy(alpha = 0.10f),
+        contentColor = FilternetTokens.Amber,
+        border = androidx.compose.foundation.BorderStroke(
+            1.dp, FilternetTokens.Amber.copy(alpha = 0.35f),
+        ),
+    ) {
+        Row(
+            modifier = Modifier.padding(13.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Column(Modifier.weight(1f)) {
+                Text(
+                    text = stringResource(R.string.fn_anomaly_title),
+                    style = MaterialTheme.typography.titleSmall,
+                    color = FilternetTokens.Amber,
+                )
+                Spacer(Modifier.height(2.dp))
+                Text(
+                    text = stringResource(R.string.fn_anomaly_sub),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            Spacer(Modifier.width(10.dp))
+            Surface(
+                modifier = Modifier.clickable(onClick = onSwitch),
+                shape = RoundedCornerShape(20.dp),
+                color = FilternetTokens.Amber,
+                contentColor = Color.White,
+            ) {
+                Text(
+                    text = stringResource(R.string.fn_anomaly_action),
+                    style = MaterialTheme.typography.labelMedium,
+                    color = Color.White,
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                )
+            }
+        }
+    }
+}
+
+/* ════════════════════════════ action tile ════════════════════════════ */
+
+@Composable
+private fun ActionTile(
+    modifier: Modifier = Modifier,
+    iconRes: Int,
+    label: String,
+    onClick: () -> Unit,
+) {
+    Surface(
+        modifier = modifier.clickable(onClick = onClick),
+        shape = RoundedCornerShape(FilternetTokens.RadiusMedium),
+        color = MaterialTheme.colorScheme.surfaceContainer,
+        contentColor = MaterialTheme.colorScheme.onSurface,
+        border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+    ) {
+        Row(
+            modifier = Modifier.padding(vertical = 12.dp, horizontal = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.Center,
+        ) {
+            Icon(
+                painter = painterResource(iconRes),
+                contentDescription = null,
+                modifier = Modifier.size(15.dp),
+                tint = MaterialTheme.colorScheme.primary,
+            )
+            Spacer(Modifier.width(7.dp))
+            Text(
+                text = label,
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurface,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
     }
 }
 
@@ -679,4 +934,103 @@ private fun formatUptime(totalSeconds: Long): String {
     val m = (totalSeconds % 3600) / 60
     val s = totalSeconds % 60
     return "%02d:%02d:%02d".format(h, m, s)
+}
+
+
+/* ═══════════════════════ carrier comparison ═══════════════════════ */
+
+/** Name of the network this phone is on right now - carrier or Wi-Fi. */
+@Composable
+private fun rememberCarrierName(): String {
+    val context = androidx.compose.ui.platform.LocalContext.current
+    return remember {
+        runCatching {
+            val cm = context.getSystemService(android.content.Context.CONNECTIVITY_SERVICE)
+                as? android.net.ConnectivityManager
+            val caps = cm?.getNetworkCapabilities(cm.activeNetwork)
+            if (caps?.hasTransport(android.net.NetworkCapabilities.TRANSPORT_WIFI) == true) {
+                return@runCatching "Wi-Fi"
+            }
+            val tm = context.getSystemService(android.content.Context.TELEPHONY_SERVICE)
+                as? android.telephony.TelephonyManager
+            tm?.networkOperatorName?.takeIf { it.isNotBlank() } ?: "Mobile"
+        }.getOrDefault("Mobile")
+    }
+}
+
+@Composable
+private fun CarrierCompareCard(
+    stats: List<SessionStatsManager.CarrierStat>,
+    current: String,
+) {
+    val best = stats.firstOrNull()?.averageBps ?: 1L
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(FilternetTokens.RadiusLarge),
+        color = MaterialTheme.colorScheme.surfaceContainer,
+        contentColor = MaterialTheme.colorScheme.onSurface,
+        border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+    ) {
+        Column(Modifier.padding(14.dp)) {
+            Text(
+                text = stringResource(R.string.fn_carrier_title),
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Spacer(Modifier.height(10.dp))
+            stats.take(4).forEach { s ->
+                val isCurrent = s.carrier.equals(current, ignoreCase = true)
+                val fraction = if (best <= 0) 0f else (s.averageBps.toFloat() / best).coerceIn(0f, 1f)
+                Row(
+                    modifier = Modifier.padding(vertical = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        text = s.carrier,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = if (isCurrent) MaterialTheme.colorScheme.primary
+                        else MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.width(76.dp),
+                    )
+                    Spacer(Modifier.width(8.dp))
+                    Box(
+                        Modifier
+                            .weight(1f)
+                            .height(7.dp)
+                            .clip(CircleShape)
+                            .background(MaterialTheme.colorScheme.surfaceContainerHighest)
+                    ) {
+                        Box(
+                            Modifier
+                                .fillMaxWidth(fraction)
+                                .height(7.dp)
+                                .clip(CircleShape)
+                                .background(
+                                    if (isCurrent) FilternetAccentBrush
+                                    else androidx.compose.ui.graphics.SolidColor(
+                                        MaterialTheme.colorScheme.outline
+                                    )
+                                )
+                        )
+                    }
+                    Spacer(Modifier.width(8.dp))
+                    Text(
+                        text = faDigits(
+                            String.format("%.1f", s.averageBps * 8 / 1_000_000.0)
+                        ),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurface,
+                    )
+                }
+            }
+            Spacer(Modifier.height(4.dp))
+            Text(
+                text = stringResource(R.string.fn_carrier_sub),
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.outline,
+            )
+        }
+    }
 }

@@ -125,6 +125,18 @@ class MainActivity : HelperBaseComponentActivity() {
         // FILTERNET: keep the background health checker in sync with its setting.
         AutoTestScheduler.sync(this)
 
+        // FILTERNET: start or stop the "connect when an app opens" watcher.
+        com.v2ray.ang.service.AppTriggerService.sync(this)
+
+        // FILTERNET: launcher icon follows the tunnel state (opt-in).
+        lifecycleScope.launch {
+            mainViewModel.uiState.collect { state ->
+                com.v2ray.ang.handler.DynamicIconManager.apply(
+                    applicationContext, state.isRunning,
+                )
+            }
+        }
+
         checkAndRequestPermission(PermissionType.POST_NOTIFICATIONS) {}
     }
 

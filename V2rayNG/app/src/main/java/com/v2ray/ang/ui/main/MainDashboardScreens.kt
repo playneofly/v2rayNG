@@ -376,6 +376,9 @@ internal fun MainSettingsHub(onNavigate: (MainDestination) -> Unit) {
             ),
             onNavigate = onNavigate,
         )
+        // FILTERNET: the two features that need their own screen.
+        FeatureSettingsCard()
+
         SettingsSection(
             title = stringResource(R.string.title_advanced),
             entries = listOf(
@@ -491,6 +494,73 @@ private fun SettingsSection(
                     }
                 }
             }
+        }
+    }
+}
+
+
+/**
+ * FILTERNET: entry point to the auto-connect / dynamic-icon settings, shown
+ * inline in the settings hub so it needs no new navigation destination.
+ */
+@Composable
+private fun FeatureSettingsCard() {
+    var expanded by remember { mutableStateOf(false) }
+    Column {
+        Surface(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable { expanded = !expanded },
+            color = FilternetGlassColor,
+            contentColor = MaterialTheme.colorScheme.onSurface,
+            shape = FilternetCardShape,
+            border = FilternetGlassBorder,
+        ) {
+            Row(
+                modifier = Modifier.padding(horizontal = 14.dp, vertical = 13.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Surface(
+                    modifier = Modifier.size(38.dp),
+                    shape = RoundedCornerShape(13.dp),
+                    color = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f),
+                    contentColor = MaterialTheme.colorScheme.primary,
+                ) {
+                    Box(contentAlignment = Alignment.Center) {
+                        Icon(
+                            painter = painterResource(R.drawable.ic_bolt_24dp),
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(19.dp),
+                        )
+                    }
+                }
+                Spacer(Modifier.width(12.dp))
+                Column(Modifier.weight(1f)) {
+                    Text(
+                        text = stringResource(R.string.fn_trigger_title),
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = FontWeight.SemiBold,
+                        color = MaterialTheme.colorScheme.onSurface,
+                    )
+                    Text(
+                        text = stringResource(R.string.fn_trigger_sub),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+                Text(
+                    text = if (expanded) "\u2304" else "\u203A",
+                    style = MaterialTheme.typography.titleLarge,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
+        if (expanded) {
+            Spacer(Modifier.height(8.dp))
+            Box(Modifier.height(430.dp)) { FeatureSettingsScreen() }
         }
     }
 }
