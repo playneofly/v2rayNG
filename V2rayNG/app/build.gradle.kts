@@ -181,7 +181,6 @@ dependencies {
     // but no native library - PsiphonEngine.isAvailable detects exactly that
     // and disables the feature instead of crashing. Install the armeabi-v7a
     // APK to use Psiphon; it runs correctly on 64-bit devices.
-    implementation("ca.psiphon:psiphontunnel:2.0.2")
 
     // AndroidX Core Libraries
     implementation(libs.androidx.core.ktx)
