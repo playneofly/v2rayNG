@@ -661,7 +661,8 @@ class MainActivity : HelperBaseComponentActivity() {
 
                 while (isActive) {
                     val candidates = withContext(Dispatchers.IO) {
-                        CleanIpScanner.bestSurvivors(40).filter { tried.add(it.ip + ":" + it.port) }
+                        CleanIpScanner.bestSurvivors(40)
+                            .filter { tried.add("${it.ip}:${it.port}:${it.sni ?: "own"}") }
                     }
                     if (candidates.isEmpty()) {
                         delay(700L)
@@ -690,7 +691,10 @@ class MainActivity : HelperBaseComponentActivity() {
                 val best = found.minByOrNull { it.first.ms } ?: return@launch
                 withContext(Dispatchers.IO) {
                     CleanIpScanner.rememberWinner(carrier, best.first.ip)
-                    CleanIpScanner.setConnectedVia(best.first.ip)
+                    // Show which server name won, not just the address - on a
+                    // carrier where the name is the problem, that is the
+                    // single most useful thing on the screen.
+                    CleanIpScanner.setConnectedVia(CleanIpScanner.describeRoute(best.first))
                 }
                 CleanIpScanner.setQuality(CleanIpScanner.Quality.VERIFIED)
                 toastSuccess(R.string.fn_strong_found)

@@ -85,6 +85,31 @@ object CleanIpScanner {
 
     private val CF_PORTS = listOf(443, 2053, 2083, 2087, 2096, 8443)
 
+    /**
+     * The server names worth trying, beyond the config's own.
+     *
+     * Every one of this pool's configs sends its worker domain as the TLS
+     * server name, which is the one part of the connection a carrier can read
+     * in the clear. These are the alternatives:
+     *
+     *  - `null` keeps the config's own name - the baseline that already works
+     *    on the permissive carriers, so it is always tried first.
+     *  - `""` sends no server name at all. Nothing to match on.
+     *  - the rest are ordinary names that live on the same CDN.
+     *
+     * Whether the CDN still routes to the worker when the name does not match
+     * the host header is not something to assume - it is exactly what the scan
+     * is for, which is why these are candidates and not a configuration.
+     */
+    private val SNI_CANDIDATES: List<String?> = listOf(
+        null,
+        "",
+        "www.cloudflare.com",
+        "cdnjs.cloudflare.com",
+        "speed.cloudflare.com",
+        "www.speedtest.net",
+    )
+
     /** One probed address, for the live list. */
     data class Probe(val address: String, val alive: Boolean, val ms: Long)
 
@@ -181,6 +206,8 @@ object CleanIpScanner {
         val port: Int,
         val ms: Long,
         val template: ConfigTemplate? = null,
+        /** Which server name answered: null = the config's own, "" = none. */
+        val sni: String? = null,
     )
 
     /** Survivors waiting to be measured, fastest handshake first. */
@@ -194,10 +221,21 @@ object CleanIpScanner {
 
     /** Best survivors by handshake latency, for the decisive final attempt. */
     fun bestSurvivors(limit: Int): List<Survivor> = synchronized(allSurvivors) {
-        allSurvivors.sortedBy { it.ms }.distinctBy { it.ip }.take(limit)
+        allSurvivors.sortedBy { it.ms }.distinctBy { Triple(it.ip, it.port, it.sni) }.take(limit)
     }
 
     fun survivorCount(): Int = allSurvivors.size
+
+    /**
+     * A human-readable route: the address plus the server name that worked.
+     * On a carrier that filters by name, which name got through is the whole
+     * finding, so it belongs on screen rather than only in the log.
+     */
+    fun describeRoute(s: Survivor): String = when {
+        s.sni == null -> "${s.ip}:${s.port}"
+        s.sni.isEmpty() -> "${s.ip}:${s.port} · no SNI"
+        else -> "${s.ip}:${s.port} · ${s.sni}"
+    }
 
     /** True once every seed has been probed - see [MIN_BATCH]. */
     @Volatile
@@ -318,7 +356,9 @@ object CleanIpScanner {
             socket = (SSLSocketFactory.getDefault() as SSLSocketFactory)
                 .createSocket(raw, ip, port, true) as SSLSocket
             socket.sslParameters = socket.sslParameters.apply {
-                serverNames = listOf(SNIHostName(sni))
+                // An empty name means deliberately sending no SNI extension
+                // at all, which is one of the things worth testing.
+                serverNames = if (sni.isEmpty()) emptyList() else listOf(SNIHostName(sni))
             }
             socket.startHandshake()
             System.currentTimeMillis() - start
@@ -424,6 +464,9 @@ object CleanIpScanner {
             // exactly the old behaviour: one template, one port.
             val tpls = templates.ifEmpty { listOf(template) }
             val ports = if (strong) CF_PORTS else listOf(port)
+            // The ordinary hunt keeps the config's own name, exactly as
+            // before. The strongest scan is the one that questions it.
+            val snis: List<String?> = if (strong) SNI_CANDIDATES else listOf(null)
 
             // ---- seeds first, all together -------------------------------
             if (seeds.isNotEmpty()) {
@@ -434,9 +477,10 @@ object CleanIpScanner {
                             gate.withPermit {
                                 val t = tpls[i % tpls.size]
                                 val p = ports[(i / tpls.size) % ports.size]
-                                val ms = handshake(ip, p, t.sni)
+                                val sn = snis[(i / (tpls.size * ports.size)) % snis.size]
+                                val ms = handshake(ip, p, sn ?: t.sni)
                                 if (ms >= 0) {
-                                    Survivor(ip, p, ms, t).let { pending.add(it); allSurvivors.add(it) }
+                                    Survivor(ip, p, ms, t, sn).let { pending.add(it); allSurvivors.add(it) }
                                 }
                                 record(ip, ms >= 0, ms)
                             }
@@ -468,10 +512,11 @@ object CleanIpScanner {
                             val ip = randomAddress()
                             val t = tpls[n % tpls.size]
                             val p = ports[(n / tpls.size) % ports.size]
+                            val sn = snis[(n / (tpls.size * ports.size)) % snis.size]
                             n++
-                            val ms = handshake(ip, p, t.sni)
+                            val ms = handshake(ip, p, sn ?: t.sni)
                             if (ms >= 0) {
-                                Survivor(ip, p, ms, t).let { pending.add(it); allSurvivors.add(it) }
+                                Survivor(ip, p, ms, t, sn).let { pending.add(it); allSurvivors.add(it) }
                             }
                             record(ip, ms >= 0, ms)
                         }
@@ -540,7 +585,7 @@ object CleanIpScanner {
             ensureGroup()
             MmkvManager.removeServerViaSubid(SCAN_SUB_ID)
             val payload = list.joinToString("\n") {
-                (it.template ?: template).withAddress(it.ip, it.port)
+                (it.template ?: template).withAddress(it.ip, it.port, it.sni)
             }
             AngConfigManager.importBatchConfig(payload, SCAN_SUB_ID, false)
             MmkvManager.decodeServerList(SCAN_SUB_ID)
@@ -600,9 +645,43 @@ object CleanIpScanner {
         val port: Int,
         val sni: String,
     ) {
-        /** The same credentials, aimed at a different door. */
-        fun withAddress(ip: String, newPort: Int): String {
-            val replaced = raw.replaceFirst("@$host:$port", "@$ip:$newPort")
+        /**
+         * The same credentials, aimed at a different door.
+         *
+         * [overrideSni] rewrites only the TLS server name, never the
+         * WebSocket `host` header. That separation is the whole point: the
+         * `host` header is what Cloudflare routes on to reach the worker, so
+         * it has to stay, while the server name is the part a carrier can
+         * see in the clear and filter on. In every one of this user's configs
+         * the two are currently identical, which is exactly why the name is
+         * the burned half.
+         *
+         *  - `null` leaves the config's own name alone.
+         *  - `""` strips the name entirely - the no-SNI variant.
+         *  - anything else is used verbatim.
+         */
+        fun withAddress(ip: String, newPort: Int, overrideSni: String? = null): String {
+            var replaced = raw.replaceFirst("@$host:$port", "@$ip:$newPort")
+            if (overrideSni != null) {
+                replaced = if (overrideSni.isEmpty()) {
+                    // Drop the parameter rather than send an empty one.
+                    replaced
+                        .replace(Regex("""[?&]sni=[^&#]*"""), "")
+                        .replace("?&", "?")
+                        .replace(Regex("""\?(?=#|$)"""), "")
+                } else {
+                    val enc = java.net.URLEncoder.encode(overrideSni, "UTF-8")
+                    if (Regex("""[?&]sni=""").containsMatchIn(replaced)) {
+                        replaced.replace(Regex("""([?&]sni=)[^&#]*"""), "$1" + enc)
+                    } else if (replaced.contains("?")) {
+                        val head = replaced.substringBefore("#")
+                        val tail = if (replaced.contains("#")) "#" + replaced.substringAfter("#") else ""
+                        "$head&sni=$enc$tail"
+                    } else {
+                        replaced
+                    }
+                }
+            }
             return if (replaced.contains("#")) {
                 replaced.substringBeforeLast("#") + "#SCAN-$ip"
             } else {
