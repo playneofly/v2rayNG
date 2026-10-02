@@ -173,6 +173,16 @@ dependencies {
     // Core Libraries
     implementation(fileTree(mapOf("dir" to "libs", "include" to listOf("*.aar", "*.jar"))))
 
+    // FILTERNET: Psiphon, used as a fallback transport when the CDN path
+    // itself is filtered and no amount of address scanning can help.
+    //
+    // This library is published for armeabi-v7a only. Because this project
+    // splits its APKs per ABI, the arm64 APK will contain the Java classes
+    // but no native library - PsiphonEngine.isAvailable detects exactly that
+    // and disables the feature instead of crashing. Install the armeabi-v7a
+    // APK to use Psiphon; it runs correctly on 64-bit devices.
+    implementation("ca.psiphon:psiphontunnel:2.0.2")
+
     // AndroidX Core Libraries
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.appcompat)
